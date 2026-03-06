@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Disease Predictor</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        <span>MedPredict</span>
+      </div>
+      <p class="tagline">AI-powered symptom analysis · Random Forest Classifier</p>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────────── -->
+  <main>
+    <section class="card symptom-card">
+      <h2>Select Your Symptoms</h2>
+      <p class="hint">Search and pick all symptoms you are experiencing, then click <strong>Predict Disease</strong>.</p>
+
+      <!-- Search box -->
+      <div class="search-wrap">
+        <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="symptomSearch" placeholder="Type to search symptoms…"
+               autocomplete="off" aria-label="Search symptoms" />
+      </div>
+
+      <!-- Chips (selected) -->
+      <div id="selectedChips" class="chip-container" aria-live="polite"></div>
+
+      <!-- Dropdown list -->
+      <ul id="symptomList" class="symptom-list" role="listbox" aria-label="Available symptoms"></ul>
+
+      <div class="actions">
+        <button id="predictBtn" class="btn-primary" disabled>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          Predict Disease
+        </button>
+        <button id="clearBtn" class="btn-secondary">Clear All</button>
+      </div>
+    </section>
+
+    <!-- ── Result ────────────────────────────────────────────── -->
+    <section id="resultSection" class="card result-card hidden" aria-live="polite">
+      <div class="result-header">
+        <div class="result-badge">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+        <div>
+          <p class="result-label">Predicted Disease</p>
+          <h2 id="diseaseName" class="disease-name"></h2>
+        </div>
+      </div>
+
+      <!-- Description -->
+      <div class="info-block">
+        <h3>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          Description
+        </h3>
+        <p id="diseaseDescription"></p>
+      </div>
+
+      <!-- Precautions -->
+      <div class="info-block">
+        <h3>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Recommended Precautions
+        </h3>
+        <ul id="precautionsList" class="precautions-list"></ul>
+      </div>
+
+      <!-- Top 3 predictions -->
+      <div class="info-block">
+        <h3>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          Top Predictions
+        </h3>
+        <div id="top3Container" class="top3-container"></div>
+      </div>
+
+      <p class="disclaimer">
+        ⚠ This tool is for informational purposes only. Always consult a qualified
+        medical professional for diagnosis and treatment.
+      </p>
+    </section>
+
+    <!-- ── Loading overlay ───────────────────────────────────── -->
+    <div id="loader" class="loader hidden" aria-label="Loading" role="status">
+      <div class="spinner"></div>
+      <p>Analysing symptoms…</p>
+    </div>
+
+    <!-- ── Error ─────────────────────────────────────────────── -->
+    <div id="errorBox" class="error-box hidden" role="alert"></div>
+  </main>
+
+  <footer>
+    <p>Built with Random Forest · scikit-learn · Flask · &copy; 2026 MedPredict</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
