@@ -1,22 +1,53 @@
 """
-app.py — Flask backend that serves the disease prediction API and the frontend.
-
-Endpoints:
-  GET  /                     → serves templates/index.html
-  GET  /api/symptoms         → returns JSON list of all symptoms
-  POST /api/predict          → accepts {"symptoms": [...]} → returns prediction
+Enhanced Flask backend with Email+OTP Authentication, Data Persistence, and ABHA API Support
 """
 
 import os
 import numpy as np
 import pandas as pd
 import joblib
-from flask import Flask, jsonify, render_template, request, abort
+from datetime import datetime
+import secrets
+from dotenv import load_dotenv
 
+from flask import Flask, jsonify, render_template, request, abort, url_for
+from flask_jwt_extended import JWTManager
+from flask_cors import CORS
+from sqlalchemy.exc import IntegrityError
+
+from config import config
+from models import db, User, OTP, PredictionHistory, HealthRecord, ABHAToken
+from auth import AuthService, token_required
+from abha import ABHAService
+
+# Load environment variables from .env before creating app/config.
+load_dotenv()
+
+# ── Initialize Flask App ──────────────────────────────────────────────────────
+def create_app(config_name="development"):
+    """Application factory function"""
+    app = Flask(__name__, template_folder="templates", static_folder="static")
+    
+    # Load configuration
+    app.config.from_object(config[config_name])
+    
+    # Initialize extensions
+    db.init_app(app)
+    JWTManager(app)
+    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    
+    with app.app_context():
+        db.create_all()
+    
+    return app
+
+
+app = create_app(os.getenv("FLASK_ENV", "development"))
+
+# ── Load ML Model Artefacts ───────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 
-# ── Load model artefacts ──────────────────────────────────────────────────────
 clf = joblib.load(os.path.join(MODEL_DIR, "model.pkl"))
 all_symptoms = joblib.load(os.path.join(MODEL_DIR, "symptom_list.pkl"))
 severity_map = joblib.load(os.path.join(MODEL_DIR, "severity_map.pkl"))
@@ -37,24 +68,252 @@ for _, row in precautions_df.iterrows():
              if pd.notna(row[c]) and str(row[c]).strip() not in ("", "nan")]
     prec_map[row["Disease"]] = precs
 
-# ── Flask app ─────────────────────────────────────────────────────────────────
-app = Flask(__name__, template_folder="templates", static_folder="static")
 
+def _safe_float(value):
+    """Best-effort numeric parsing for optional vitals fields."""
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_bp(bp_value):
+    """Parse blood pressure string formats like '120/80'."""
+    if not bp_value:
+        return None, None
+    text = str(bp_value).strip().replace(" ", "")
+    if "/" not in text:
+        return None, None
+    left, right = text.split("/", 1)
+    try:
+        return int(left), int(right)
+    except ValueError:
+        return None, None
+
+
+def analyze_vitals_impact(health_data):
+    """Generate a simple risk score from vitals and map it to triage guidance."""
+    if not isinstance(health_data, dict) or not health_data:
+        return None
+
+    risk_points = 0
+    flags = []
+
+    systolic, diastolic = _parse_bp(health_data.get("blood_pressure"))
+    if systolic is not None and diastolic is not None:
+        if systolic >= 180 or diastolic >= 120:
+            risk_points += 25
+            flags.append("Very high blood pressure")
+        elif systolic >= 140 or diastolic >= 90:
+            risk_points += 12
+            flags.append("High blood pressure")
+        elif systolic < 90 or diastolic < 60:
+            risk_points += 15
+            flags.append("Low blood pressure")
+
+    heart_rate = _safe_float(health_data.get("heart_rate"))
+    if heart_rate is not None:
+        if heart_rate > 120 or heart_rate < 50:
+            risk_points += 20
+            flags.append("Abnormal heart rate")
+        elif heart_rate > 100:
+            risk_points += 10
+            flags.append("Elevated heart rate")
+
+    temperature = _safe_float(health_data.get("temperature"))
+    if temperature is not None:
+        if temperature >= 39.5:
+            risk_points += 25
+            flags.append("High fever")
+        elif temperature >= 38.0:
+            risk_points += 10
+            flags.append("Fever")
+        elif temperature < 35.0:
+            risk_points += 20
+            flags.append("Low body temperature")
+
+    oxygen = _safe_float(health_data.get("oxygen_saturation"))
+    if oxygen is not None:
+        if oxygen < 90:
+            risk_points += 35
+            flags.append("Low oxygen saturation")
+        elif oxygen < 95:
+            risk_points += 20
+            flags.append("Borderline oxygen saturation")
+
+    blood_sugar = _safe_float(health_data.get("blood_sugar"))
+    if blood_sugar is not None:
+        if blood_sugar < 70 or blood_sugar > 250:
+            risk_points += 20
+            flags.append("Critical blood sugar range")
+        elif blood_sugar > 180:
+            risk_points += 10
+            flags.append("High blood sugar")
+
+    if risk_points >= 35:
+        triage_level = "urgent"
+    elif risk_points >= 15:
+        triage_level = "moderate"
+    else:
+        triage_level = "low"
+
+    # Penalize confidence up to 25 points when vitals indicate higher instability.
+    confidence_penalty = min(25.0, round(risk_points * 0.35, 1))
+
+    return {
+        "risk_points": risk_points,
+        "flags": flags,
+        "triage_level": triage_level,
+        "confidence_penalty": confidence_penalty,
+    }
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                     PUBLIC ROUTES (No Authentication)                      ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
 
 @app.route("/")
 def index():
+    """Serve the frontend"""
     return render_template("index.html")
 
 
+@app.route("/favicon.ico")
+def favicon():
+    """Silence browser favicon 404s when no icon file is configured."""
+    return "", 204
+
+
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                    AUTHENTICATION ROUTES                                   ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+
+@app.route("/api/auth/request-otp", methods=["POST"])
+def request_otp():
+    """
+    Request OTP for email-based login/signup
+    
+    Body: {"email": "user@example.com"}
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip().lower()
+    
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+    
+    try:
+        # Create or get user
+        user = AuthService.create_or_get_user(email)
+        
+        # Generate OTP
+        otp, success, message = AuthService.generate_otp(email)
+        
+        if not success:
+            return jsonify({"error": message}), 500
+        
+        return jsonify({
+            "message": "OTP sent successfully",
+            "email": email,
+            "validity_minutes": app.config["OTP_VALIDITY_MINUTES"],
+            "user_id": user.id
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to request OTP: {str(e)}"}), 500
+
+
+@app.route("/api/auth/verify-otp", methods=["POST"])
+def verify_otp():
+    """
+    Verify OTP and generate JWT tokens
+    
+    Body: {"email": "user@example.com", "otp": "123456"}
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip().lower()
+    otp_code = data.get("otp", "").strip()
+    
+    if not email or not otp_code or len(otp_code) != 6:
+        return jsonify({"error": "Valid email and 6-digit OTP required"}), 400
+    
+    try:
+        # Verify OTP
+        is_valid, message = AuthService.verify_otp(email, otp_code)
+        if not is_valid:
+            return jsonify({"error": message}), 401
+        
+        # Get or create user
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            user = AuthService.create_or_get_user(email)
+        
+        # Mark user as verified
+        user.is_verified = True
+        db.session.commit()
+        
+        # Generate JWT tokens
+        tokens = AuthService.generate_tokens(user.id)
+        
+        return jsonify({
+            "message": "Login successful",
+            "user": user.to_dict(),
+            **tokens
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"OTP verification failed: {str(e)}"}), 500
+
+
+@app.route("/api/auth/refresh", methods=["POST"])
+def refresh_token():
+    """Refresh JWT access token using refresh token"""
+    from flask_jwt_extended import verify_jwt_in_request
+    
+    try:
+        verify_jwt_in_request(refresh=True)
+        from flask_jwt_extended import get_jwt_identity
+        user_id = get_jwt_identity()
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid token identity"}), 401
+        
+        access_token = AuthService.generate_tokens(user_id)["access_token"]
+        
+        return jsonify({"access_token": access_token}), 200
+    except Exception as e:
+        return jsonify({"error": "Token refresh failed"}), 401
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                    PREDICTION ROUTES (Authenticated)                       ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+
 @app.route("/api/symptoms", methods=["GET"])
 def get_symptoms():
-    """Return the full list of symptoms (display-friendly labels)."""
+    """Return the full list of symptoms (display-friendly labels)"""
     display = [s.replace("_", " ").title() for s in all_symptoms]
     return jsonify([{"value": s, "label": d} for s, d in zip(all_symptoms, display)])
 
 
 @app.route("/api/predict", methods=["POST"])
-def predict():
+@token_required
+def predict(user):
+    """
+    Predict disease based on symptoms and store in history
+    
+    Body: {
+        "symptoms": ["cough", "fever"],
+        "notes": "optional notes",
+        "health_data": {optional health vitals}
+    }
+    """
     data = request.get_json(force=True, silent=True)
     if not data or "symptoms" not in data:
         abort(400, "Request body must be JSON with a 'symptoms' array.")
@@ -63,7 +322,7 @@ def predict():
     if not isinstance(raw_symptoms, list):
         abort(400, "'symptoms' must be an array.")
 
-    # Sanitise input: keep only known symptoms, strip whitespace, lower-case
+    # Sanitise input: keep only known symptoms
     chosen = []
     unknown = []
     for s in raw_symptoms:
@@ -81,8 +340,8 @@ def predict():
     for s in chosen:
         vec[0, symptom_index[s]] = severity_map[s]
 
+    # Get predictions from symptom model
     disease = clf.predict(vec)[0]
-    # Get top-3 predictions with probabilities
     proba = clf.predict_proba(vec)[0]
     top3_idx = np.argsort(proba)[::-1][:3]
     top3 = [
@@ -91,14 +350,428 @@ def predict():
         if proba[i] > 0
     ]
 
+    base_confidence = round(float(proba[np.argmax(proba)]) * 100, 1)
+
+    health_data = data.get("health_data") if isinstance(data.get("health_data"), dict) else None
+    vitals_analysis = analyze_vitals_impact(health_data)
+
+    confidence = base_confidence
+    if vitals_analysis:
+        confidence = max(20.0, round(base_confidence - vitals_analysis["confidence_penalty"], 1))
+    
+    # Store prediction in database
+    prediction = PredictionHistory(
+        user_id=user.id,
+        symptoms=chosen,
+        predicted_disease=disease,
+        confidence_score=confidence,
+        top3_predictions=top3,
+        notes=data.get("notes"),
+        severity_level=data.get("severity_level") or (vitals_analysis["triage_level"] if vitals_analysis else None)
+    )
+    
+    # Store health data if provided
+    if health_data:
+        health_record = HealthRecord(
+            user_id=user.id,
+            prediction_id=None,
+            blood_pressure=health_data.get("blood_pressure"),
+            heart_rate=health_data.get("heart_rate"),
+            temperature=health_data.get("temperature"),
+            oxygen_saturation=health_data.get("oxygen_saturation"),
+            blood_sugar=health_data.get("blood_sugar"),
+            allergies=health_data.get("allergies"),
+            medications=health_data.get("medications")
+        )
+        db.session.add(health_record)
+    
+    db.session.add(prediction)
+    db.session.commit()
+
     return jsonify({
+        "prediction_id": prediction.id,
         "disease": disease,
         "description": desc_map.get(disease, "No description available."),
         "precautions": prec_map.get(disease, []),
+        "confidence_score": confidence,
+        "base_confidence_score": base_confidence,
+        "vitals_used": bool(vitals_analysis),
+        "vitals_analysis": vitals_analysis,
         "top3": top3,
         "unknown_symptoms": unknown,
-    })
+        "stored": True
+    }), 200
+
+
+@app.route("/api/predictions/history", methods=["GET"])
+@token_required
+def get_prediction_history(user):
+    """Get user's prediction history with pagination"""
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("limit", 10, type=int)
+    
+    paginated = PredictionHistory.query.filter_by(user_id=user.id).order_by(
+        PredictionHistory.created_at.desc()
+    ).paginate(page=page, per_page=per_page)
+    
+    return jsonify({
+        "total": paginated.total,
+        "pages": paginated.pages,
+        "current_page": page,
+        "predictions": [p.to_dict() for p in paginated.items]
+    }), 200
+
+
+@app.route("/api/predictions/<int:prediction_id>", methods=["GET"])
+@token_required
+def get_prediction_detail(user, prediction_id):
+    """Get detailed prediction with associated health data"""
+    prediction = PredictionHistory.query.filter_by(
+        id=prediction_id, user_id=user.id
+    ).first()
+    
+    if not prediction:
+        return jsonify({"error": "Prediction not found"}), 404
+    
+    # Get associated health records
+    health_records = HealthRecord.query.filter_by(
+        prediction_id=prediction_id
+    ).all()
+    
+    return jsonify({
+        "prediction": prediction.to_dict(),
+        "health_records": [h.to_dict() for h in health_records]
+    }), 200
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                    USER PROFILE ROUTES (Authenticated)                     ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+
+@app.route("/api/user/profile", methods=["GET"])
+@token_required
+def get_user_profile(user):
+    """Get current user's profile"""
+    return jsonify(user.to_dict()), 200
+
+
+@app.route("/api/user/profile", methods=["PUT"])
+@token_required
+def update_user_profile(user):
+    """Update user profile information"""
+    data = request.get_json(silent=True) or {}
+    
+    try:
+        # Update allowed fields
+        if "first_name" in data:
+            first_name = (data.get("first_name") or "").strip()
+            user.first_name = first_name or None
+        if "last_name" in data:
+            last_name = (data.get("last_name") or "").strip()
+            user.last_name = last_name or None
+        if "age" in data:
+            age_value = data.get("age")
+            if age_value in (None, ""):
+                user.age = None
+            else:
+                try:
+                    parsed_age = int(age_value)
+                except (TypeError, ValueError):
+                    return jsonify({"error": "Age must be a valid number"}), 400
+
+                if parsed_age < 0 or parsed_age > 130:
+                    return jsonify({"error": "Age must be between 0 and 130"}), 400
+                user.age = parsed_age
+        if "gender" in data:
+            gender = (data.get("gender") or "").strip().upper()
+            user.gender = gender or None
+        if "phone" in data:
+            # Empty phone should be stored as NULL to avoid unique constraint conflicts.
+            phone = (data.get("phone") or "").strip()
+            user.phone = phone or None
+        
+        user.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Profile updated successfully",
+            "user": user.to_dict()
+        }), 200
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "Phone number already in use by another account"}), 409
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to update profile: {str(e)}"}), 500
+
+
+@app.route("/api/user/health-records", methods=["GET"])
+@token_required
+def get_health_records(user):
+    """Get user's health records"""
+    records = HealthRecord.query.filter_by(user_id=user.id).order_by(
+        HealthRecord.created_at.desc()
+    ).all()
+    
+    return jsonify({
+        "count": len(records),
+        "records": [r.to_dict() for r in records]
+    }), 200
+
+
+@app.route("/api/user/health-records", methods=["POST"])
+@token_required
+def add_health_record(user):
+    """Add a new health record"""
+    data = request.get_json(silent=True) or {}
+    
+    try:
+        health_record = HealthRecord(
+            user_id=user.id,
+            blood_pressure=data.get("blood_pressure"),
+            heart_rate=data.get("heart_rate"),
+            temperature=data.get("temperature"),
+            oxygen_saturation=data.get("oxygen_saturation"),
+            blood_sugar=data.get("blood_sugar"),
+            allergies=data.get("allergies"),
+            medications=data.get("medications"),
+            past_illnesses=data.get("past_illnesses")
+        )
+        
+        db.session.add(health_record)
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Health record added successfully",
+            "record": health_record.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to add health record: {str(e)}"}), 500
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                    ABHA INTEGRATION ROUTES                                 ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+
+@app.route("/api/abha/authorization-url", methods=["GET"])
+@token_required
+def get_abha_authorization_url(user):
+    """Generate ABHA OAuth authorization URL"""
+    try:
+        # Generate state for CSRF protection
+        state = secrets.token_urlsafe(32)
+        
+        auth_url = ABHAService.get_authorization_url(state)
+        
+        return jsonify({
+            "authorization_url": auth_url,
+            "state": state
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate authorization URL: {str(e)}"}), 500
+
+
+@app.route("/api/abha/operations", methods=["GET"])
+@token_required
+def get_abha_operations(user):
+    """Return supported ABHA operations mapped to official ABDM endpoints."""
+    return jsonify({
+        "operations": ABHAService.get_operation_catalog(),
+        "count": len(ABHAService.get_operation_catalog())
+    }), 200
+
+
+@app.route("/api/abha/execute", methods=["POST"])
+@token_required
+def execute_abha_operation(user):
+    """
+    Execute one whitelisted ABHA operation.
+
+    Body:
+    {
+      "operation": "auth.init",
+      "payload": {...},
+      "auth_token": "optional-abha-token"
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    operation = data.get("operation")
+    payload = data.get("payload") or {}
+    provided_auth_token = data.get("auth_token")
+
+    if not operation:
+        return jsonify({"error": "operation is required"}), 400
+
+    client_id = (app.config.get("ABHA_CLIENT_ID") or "").strip()
+    client_secret = (app.config.get("ABHA_CLIENT_SECRET") or "").strip()
+    placeholder_values = {
+        "",
+        "your-abha-client-id",
+        "your-abha-client-secret",
+        "changeme",
+        "replace-me",
+    }
+    if client_id in placeholder_values or client_secret in placeholder_values:
+        return jsonify({
+            "error": "ABHA credentials are not configured. Set ABHA_CLIENT_ID and ABHA_CLIENT_SECRET in .env"
+        }), 400
+
+    operation_catalog = ABHAService.get_operation_catalog()
+    operation_meta = operation_catalog.get(operation)
+    if not operation_meta:
+        return jsonify({
+            "error": "Unsupported ABHA operation",
+            "operation": operation,
+            "supported_operations": sorted(operation_catalog.keys())
+        }), 400
+
+    effective_auth_token = provided_auth_token
+    if operation_meta.get("requires_auth_token") and not effective_auth_token:
+        token_row = ABHAToken.query.filter_by(user_id=user.id).first()
+        if token_row:
+            refresh_ok, refresh_result = ABHAService.refresh_abha_token(user.id)
+            if refresh_ok:
+                effective_auth_token = refresh_result
+
+    success, result, status_code = ABHAService.execute_operation(
+        operation=operation,
+        payload=payload,
+        auth_token=effective_auth_token,
+    )
+
+    if success and operation in {"auth.confirm_aadhaar_otp", "auth.confirm_mobile_otp"}:
+        token_value = result.get("token") or result.get("accessToken") or result.get("access_token")
+        abha_id = result.get("healthId") or result.get("abhaAddress") or result.get("abhaId")
+        if token_value:
+            ABHAService.link_abha_account(user.id, token_value, abha_id)
+
+    if success:
+        return jsonify({
+            "operation": operation,
+            "endpoint": operation_meta.get("endpoint"),
+            "response": result,
+        }), status_code
+
+    return jsonify({
+        "operation": operation,
+        "endpoint": operation_meta.get("endpoint"),
+        "error": result,
+    }), status_code or 500
+
+
+@app.route("/api/abha/callback", methods=["POST"])
+@token_required
+def abha_callback(user):
+    """Handle ABHA OAuth callback"""
+    data = request.get_json(silent=True) or {}
+    code = data.get("code")
+    
+    if not code:
+        return jsonify({"error": "Authorization code missing"}), 400
+    
+    try:
+        # Exchange code for token
+        success, token_data, status_code = ABHAService.exchange_code_for_token(code)
+        if not success:
+            return jsonify({"error": token_data}), status_code or 500
+        
+        access_token = token_data.get("access_token")
+        abha_id = token_data.get("abha_id", "")
+        
+        # Link ABHA account
+        success, message = ABHAService.link_abha_account(user.id, access_token, abha_id)
+        if not success:
+            return jsonify({"error": message}), 500
+        
+        # Fetch and store health records
+        success, message = ABHAService.fetch_and_store_health_records(user.id, access_token)
+        
+        return jsonify({
+            "message": "ABHA account linked successfully",
+            "abha_id": abha_id,
+            "health_records_fetched": success
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"ABHA callback failed: {str(e)}"}), 500
+
+
+@app.route("/api/abha/health-data", methods=["GET"])
+@token_required
+def get_abha_health_data(user):
+    """Fetch latest health data from ABHA"""
+    if not user.abha_id:
+        return jsonify({"error": "ABHA account not linked"}), 400
+    
+    try:
+        # Refresh token if needed
+        success, token = ABHAService.refresh_abha_token(user.id)
+        if not success:
+            return jsonify({"error": token}), 500
+        
+        # Fetch health data
+        success, data = ABHAService.get_user_health_data(token)
+        if not success:
+            return jsonify({"error": data}), 500
+        
+        return jsonify({
+            "abha_id": user.abha_id,
+            "health_data": data
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch ABHA health data: {str(e)}"}), 500
+
+
+@app.route("/api/abha/unlink", methods=["POST"])
+@token_required
+def unlink_abha_account(user):
+    """Unlink ABHA account from user"""
+    try:
+        user.abha_id = None
+        user.abha_token = None
+        user.abha_linked_at = None
+        user.updated_at = datetime.utcnow()
+        
+        # Delete associated ABHA tokens
+        from models import ABHAToken
+        ABHAToken.query.filter_by(user_id=user.id).delete()
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "ABHA account unlinked successfully"
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to unlink ABHA account: {str(e)}"}), 500
+
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                    ERROR HANDLERS                                          ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+
+@app.errorhandler(400)
+def bad_request(error):
+    return jsonify({"error": error.description or "Bad request"}), 400
+
+
+@app.errorhandler(401)
+def unauthorized(error):
+    return jsonify({"error": "Unauthorized"}), 401
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Not found"}), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    if app.debug:
+        return jsonify({"error": f"Internal server error: {str(error)}"}), 500
+    return jsonify({"error": "Internal server error"}), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)
