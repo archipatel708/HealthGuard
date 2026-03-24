@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Disease Predictor</title>
+  <title>HealthGuard - Disease Prediction & ABHA Integration</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -16,123 +16,258 @@
              stroke-linejoin="round" aria-hidden="true">
           <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
         </svg>
-        <span>MedPredict</span>
+        <span>HealthGuard</span>
       </div>
-      <p class="tagline">AI-powered symptom analysis · Random Forest Classifier</p>
+      <p class="tagline">Intelligent Disease Prediction with ABHA Integration</p>
+      <nav class="nav-menu" id="navMenu" style="display: none;">
+        <button id="profileBtn" class="nav-link">Profile</button>
+        <button id="historyBtn" class="nav-link">History</button>
+        <button id="logoutBtn" class="nav-link">Logout</button>
+      </nav>
     </div>
   </header>
 
   <!-- ── Main ───────────────────────────────────────────────── -->
   <main>
-    <section class="card symptom-card">
-      <h2>Select Your Symptoms</h2>
-      <p class="hint">Search and pick all symptoms you are experiencing, then click <strong>Predict Disease</strong>.</p>
-
-      <!-- Search box -->
-      <div class="search-wrap">
-        <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-             stroke-linejoin="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input type="text" id="symptomSearch" placeholder="Type to search symptoms…"
-               autocomplete="off" aria-label="Search symptoms" />
+    <!-- LOGIN SCREEN -->
+    <section id="loginSection" class="card login-card">
+      <h2>Welcome to HealthGuard</h2>
+      <p class="hint">Sign in or create an account to get started</p>
+      
+      <div class="form-group">
+        <label for="emailInput">Email Address</label>
+        <input type="email" id="emailInput" placeholder="your@email.com" autocomplete="email" />
       </div>
-
-      <!-- Chips (selected) -->
-      <div id="selectedChips" class="chip-container" aria-live="polite"></div>
-
-      <!-- Dropdown list -->
-      <ul id="symptomList" class="symptom-list" role="listbox" aria-label="Available symptoms"></ul>
-
-      <div class="actions">
-        <button id="predictBtn" class="btn-primary" disabled>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" stroke-linecap="round"
-               stroke-linejoin="round" aria-hidden="true">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-          </svg>
-          Predict Disease
+      
+      <button id="requestOtpBtn" class="btn-primary" style="width: 100%;">
+        Request OTP
+      </button>
+      
+      <div id="otpSection" class="hidden" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+        <p class="hint">Enter the 6-digit OTP sent to your email</p>
+        <div class="form-group">
+          <label for="otpInput">OTP Code</label>
+          <input type="text" id="otpInput" placeholder="000000" maxlength="6" inputmode="numeric" />
+        </div>
+        <button id="verifyOtpBtn" class="btn-primary" style="width: 100%;">
+          Verify OTP
         </button>
-        <button id="clearBtn" class="btn-secondary">Clear All</button>
+        <p style="text-align: center; margin-top: 10px; font-size: 12px; color: #666;">
+          <button id="resendOtpBtn" class="link-btn">Resend OTP</button>
+        </p>
       </div>
     </section>
 
-    <!-- ── Result ────────────────────────────────────────────── -->
-    <section id="resultSection" class="card result-card hidden" aria-live="polite">
-      <div class="result-header">
-        <div class="result-badge">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" stroke-linecap="round"
-               stroke-linejoin="round" aria-hidden="true">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
+    <!-- MAIN APP (Hidden until authenticated) -->
+    <section id="appSection" class="hidden">
+      <!-- TAB NAVIGATION -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="prediction">Prediction</button>
+        <button class="tab-btn" data-tab="history">History</button>
+        <button class="tab-btn" data-tab="profile">Profile</button>
+        <button class="tab-btn" data-tab="abha">ABHA</button>
+      </div>
+
+      <!-- PREDICTION TAB -->
+      <section id="predictionTab" class="tab-content active">
+        <div class="card symptom-card">
+          <h2>Select Your Symptoms</h2>
+          <p class="hint">Search and pick all symptoms you are experiencing</p>
+
+          <div class="search-wrap">
+            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="symptomSearch" placeholder="Type to search symptoms…"
+                   autocomplete="off" aria-label="Search symptoms" />
+          </div>
+
+          <div id="selectedChips" class="chip-container" aria-live="polite"></div>
+          <ul id="symptomList" class="symptom-list" role="listbox" aria-label="Available symptoms"></ul>
+
+          <div class="actions">
+            <button id="predictBtn" class="btn-primary" disabled>
+              Predict Disease
+            </button>
+            <button id="clearBtn" class="btn-secondary">Clear All</button>
+          </div>
         </div>
-        <div>
-          <p class="result-label">Predicted Disease</p>
-          <h2 id="diseaseName" class="disease-name"></h2>
+
+        <!-- OPTIONAL HEALTH DATA -->
+        <div class="card">
+          <h3>Optional Health Vitals (for enhanced analysis)</h3>
+          <div class="health-form">
+            <div class="form-group">
+              <label for="bloodPressure">Blood Pressure (e.g., 120/80)</label>
+              <input type="text" id="bloodPressure" placeholder="120/80" />
+            </div>
+            <div class="form-group">
+              <label for="temperature">Temperature (°C)</label>
+              <input type="number" id="temperature" placeholder="36.5" step="0.1" />
+            </div>
+            <div class="form-group">
+              <label for="heartRate">Heart Rate (bpm)</label>
+              <input type="number" id="heartRate" placeholder="72" />
+            </div>
+          </div>
         </div>
-      </div>
 
-      <!-- Description -->
-      <div class="info-block">
-        <h3>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          Description
-        </h3>
-        <p id="diseaseDescription"></p>
-      </div>
+        <!-- RESULT -->
+        <section id="resultSection" class="card result-card hidden" aria-live="polite">
+          <div class="result-header">
+            <div class="result-badge">✓</div>
+            <div>
+              <p class="result-label">Predicted Disease</p>
+              <h2 id="diseaseName" class="disease-name"></h2>
+              <p id="confidenceScore" style="color: #666; font-size: 14px;"></p>
+            </div>
+          </div>
 
-      <!-- Precautions -->
-      <div class="info-block">
-        <h3>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
-          Recommended Precautions
-        </h3>
-        <ul id="precautionsList" class="precautions-list"></ul>
-      </div>
+          <div class="info-block">
+            <h3>Description</h3>
+            <p id="diseaseDescription"></p>
+          </div>
 
-      <!-- Top 3 predictions -->
-      <div class="info-block">
-        <h3>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <line x1="18" y1="20" x2="18" y2="10"/>
-            <line x1="12" y1="20" x2="12" y2="4"/>
-            <line x1="6" y1="20" x2="6" y2="14"/>
-          </svg>
-          Top Predictions
-        </h3>
-        <div id="top3Container" class="top3-container"></div>
-      </div>
+          <div class="info-block">
+            <h3>Recommended Precautions</h3>
+            <ul id="precautionsList" class="precautions-list"></ul>
+          </div>
 
-      <p class="disclaimer">
-        ⚠ This tool is for informational purposes only. Always consult a qualified
-        medical professional for diagnosis and treatment.
-      </p>
+          <div class="info-block">
+            <h3>Top Predictions</h3>
+            <div id="top3Container" class="top3-container"></div>
+          </div>
+
+          <p class="disclaimer">
+            ⚠ This tool is for informational purposes only. Always consult a qualified
+            medical professional for diagnosis and treatment.
+          </p>
+        </section>
+      </section>
+
+      <!-- HISTORY TAB -->
+      <section id="historyTab" class="tab-content hidden">
+        <div class="card">
+          <h2>Prediction History</h2>
+          <div class="history-table-wrap">
+            <table class="history-table" aria-label="Prediction history table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Disease</th>
+                  <th>Confidence</th>
+                  <th>Symptoms</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody"></tbody>
+            </table>
+            <p id="historyEmptyState" class="hint hidden" style="margin-top: 12px;">No prediction history yet</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROFILE TAB -->
+      <section id="profileTab" class="tab-content hidden">
+        <div class="card">
+          <h2>My Profile</h2>
+          <div class="profile-form">
+            <div class="form-group">
+              <label for="firstName">First Name</label>
+              <input type="text" id="firstName" />
+            </div>
+            <div class="form-group">
+              <label for="lastName">Last Name</label>
+              <input type="text" id="lastName" />
+            </div>
+            <div class="form-group">
+              <label for="age">Age</label>
+              <input type="number" id="age" />
+            </div>
+            <div class="form-group">
+              <label for="gender">Gender</label>
+              <select id="gender">
+                <option value="">Select Gender</option>
+                <option value="M">Male</option>
+                <option value="F">Female</option>
+                <option value="O">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="phone">Phone</label>
+              <input type="tel" id="phone" />
+            </div>
+            <button id="updateProfileBtn" class="btn-primary">Update Profile</button>
+          </div>
+
+          <h3 style="margin-top: 30px;">Health Records</h3>
+          <div id="healthRecordsList" class="health-records-list"></div>
+        </div>
+      </section>
+
+      <!-- ABHA TAB -->
+      <section id="abhaTab" class="tab-content hidden">
+        <div class="card">
+          <h2>ABHA (Ayushman Bharat Health Account)</h2>
+          <p class="hint">Link your ABHA account to access your health records directly from the government system</p>
+          
+          <div id="abhaStatus" class="abha-status">
+            <p id="abhaStatusText">Not linked</p>
+            <button id="linkAbhaBtn" class="btn-primary">Link ABHA Account</button>
+            <button id="unlinkAbhaBtn" class="btn-secondary hidden">Unlink ABHA</button>
+          </div>
+
+          <div id="abhaDataSection" class="hidden">
+            <h3>ABHA Health Data</h3>
+            <div id="abhaData" class="abha-data"></div>
+          </div>
+
+          <div class="abha-request-card">
+            <h3>Request ABHA Data / OTP</h3>
+            <p class="hint">Use mobile number or health ID to request data from ABHA APIs.</p>
+
+            <div class="form-group">
+              <label for="abhaRequestType">Request Type</label>
+              <select id="abhaRequestType">
+                <option value="mobile">By Mobile Number (Generate OTP)</option>
+                <option value="health_id">By Health ID</option>
+                <option value="profile">My Linked ABHA Profile</option>
+              </select>
+            </div>
+
+            <div id="abhaMobileGroup" class="form-group">
+              <label for="abhaMobileInput">Mobile Number</label>
+              <input type="tel" id="abhaMobileInput" placeholder="e.g. 9876543210" />
+            </div>
+
+            <div id="abhaHealthIdGroup" class="form-group hidden">
+              <label for="abhaHealthIdInput">Health ID / ABHA Address</label>
+              <input type="text" id="abhaHealthIdInput" placeholder="e.g. user@abdm" />
+            </div>
+
+            <button id="abhaRequestBtn" class="btn-primary">Request via ABHA API</button>
+
+            <div class="abha-response-wrap">
+              <label for="abhaRequestOutput">API Response</label>
+              <pre id="abhaRequestOutput" class="abha-request-output">No request made yet.</pre>
+            </div>
+          </div>
+        </div>
+      </section>
     </section>
 
-    <!-- ── Loading overlay ───────────────────────────────────── -->
+    <!-- LOADING & ERROR OVERLAYS -->
     <div id="loader" class="loader hidden" aria-label="Loading" role="status">
       <div class="spinner"></div>
-      <p>Analysing symptoms…</p>
+      <p>Processing...</p>
     </div>
 
-    <!-- ── Error ─────────────────────────────────────────────── -->
     <div id="errorBox" class="error-box hidden" role="alert"></div>
   </main>
 
   <footer>
-    <p>Built with Random Forest · scikit-learn · Flask · &copy; 2026 MedPredict</p>
+    <p>HealthGuard · Powered by scikit-learn, Flask & NDHM ABHA · &copy; 2026</p>
   </footer>
 
   <script src="/static/app.js"></script>

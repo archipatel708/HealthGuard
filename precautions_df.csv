@@ -40,3 +40,103 @@
 38,Arthritis,exercise,use hot and cold therapy,try acupuncture,massage
 39,Gastroenteritis,stop eating solid food for while,try taking small sips of water,rest,ease back into eating
 40,Tuberculosis,cover mouth,consult doctor,medication,rest
+41,Influenza,rest,drink plenty of fluids,take antiviral medication,avoid contact with others
+42,Measles,isolate patient,drink fluids,vitamin A supplementation,consult doctor
+43,Mumps,apply ice packs,rest,drink fluids,avoid acidic foods
+44,Rubella,rest,drink fluids,avoid pregnant women,consult doctor
+45,Whooping cough,antibiotics,rest,humidified air,consult doctor
+46,Cholera,oral rehydration solution,drink clean water,avoid contaminated food,consult doctor
+47,Ebola,isolate patient,wear protective gear,hydration,seek immediate medical care
+48,Zika virus,rest,drink fluids,avoid mosquito bites,consult doctor
+49,Polio,vaccination,physical therapy,rest,consult doctor
+50,Rabies,vaccination,clean wound immediately,seek medical help,avoid animal bites
+51,Scabies,apply medicated cream,wash clothes in hot water,avoid contact,consult doctor
+52,Ringworm,apply antifungal cream,keep area dry,avoid sharing items,maintain hygiene
+53,Athlete’s foot,keep feet dry,use antifungal powder,wear breathable shoes,change socks regularly
+54,Conjunctivitis,use eye drops,avoid touching eyes,wash hands,avoid sharing towels
+55,Sinusitis,steam inhalation,drink fluids,use nasal spray,rest
+56,Bronchitis,rest,drink warm fluids,avoid smoking,use humidifier
+57,Laryngitis,rest voice,drink warm fluids,avoid irritants,use humidifier
+58,Tonsillitis,drink warm liquids,rest,gargle salt water,consult doctor
+59,Appendicitis,seek immediate surgery,avoid food,consult doctor,rest
+60,Pancreatitis,avoid alcohol,low fat diet,drink fluids,consult doctor
+61,Cirrhosis,avoid alcohol,eat healthy,consult doctor,medication
+62,Anemia,consume iron rich foods,take supplements,consult doctor,balanced diet
+63,Leukemia,chemotherapy,consult specialist,balanced diet,follow up
+64,Lymphoma,chemotherapy,radiation therapy,consult doctor,rest
+65,Skin cancer,avoid sun exposure,use sunscreen,consult dermatologist,regular screening
+66,Lung cancer,quit smoking,chemotherapy,radiation therapy,consult doctor
+67,Breast cancer,regular screening,chemotherapy,surgery,consult doctor
+68,Prostate cancer,screening,medication,surgery,consult doctor
+69,Colon cancer,high fiber diet,screening,consult doctor,medication
+70,Alzheimer’s disease,mental exercises,healthy diet,regular checkups,medication
+71,Parkinson’s disease,exercise,medication,physical therapy,consult doctor
+72,Epilepsy,take prescribed medication,avoid triggers,regular sleep,consult doctor
+73,Multiple sclerosis,physical therapy,medication,rest,consult doctor
+74,Stroke,call ambulance,keep patient calm,monitor breathing,seek immediate care
+75,Deep vein thrombosis,exercise,avoid prolonged sitting,use compression stockings,consult doctor
+76,Atherosclerosis,healthy diet,exercise,avoid smoking,medication
+77,Arrhythmia,avoid caffeine,medication,monitor heart rate,consult doctor
+78,Heart failure,limit salt,monitor weight,medication,consult doctor
+79,Endocarditis,antibiotics,rest,consult doctor,maintain hygiene
+80,Pericarditis,rest,anti inflammatory drugs,consult doctor,monitor symptoms
+81,Glaucoma,use eye drops,regular checkups,avoid eye strain,consult doctor
+82,Cataract,surgery,wear sunglasses,regular eye exams,consult doctor
+83,Macular degeneration,vitamin supplements,regular checkups,avoid smoking,healthy diet
+84,Hearing loss,avoid loud noise,use hearing aids,consult specialist,regular checkups
+85,Otitis media,antibiotics,rest,avoid water exposure,consult doctor
+86,Vertigo,avoid sudden movements,rest,hydration,consult doctor
+87,Depression,therapy,medication,exercise,social support
+88,Anxiety disorder,relaxation techniques,therapy,medication,exercise
+89,Bipolar disorder,medication,therapy,regular sleep,consult doctor
+90,Schizophrenia,antipsychotic medication,therapy,social support,regular follow up
+91,Obsessive compulsive disorder,therapy,medication,stress management,consult doctor
+92,Post traumatic stress disorder,therapy,medication,support groups,relaxation techniques
+93,Insomnia,maintain sleep schedule,avoid caffeine,relaxation techniques,consult doctor
+94,Sleep apnea,use CPAP machine,lose weight,avoid alcohol,consult doctor
+95,Obesity,exercise,balanced diet,limit calories,consult doctor
+96,Malnutrition,balanced diet,vitamin supplements,regular meals,consult doctor
+97,Dehydration,drink water,oral rehydration salts,avoid heat,rest
+98,Food poisoning,drink fluids,rest,avoid solid food initially,consult doctor
+99,Lactose intolerance,avoid dairy,use lactose free products,consult doctor,balanced diet
+100,Celiac disease,avoid gluten,balanced diet,consult doctor,vitamin supplements
+101,Goiter,iodine intake,medication,consult doctor,balanced diet
+102,Gout,avoid purine rich foods,drink water,medication,rest
+103,Osteoporosis,calcium intake,vitamin D,exercise,consult doctor
+104,Rickets,vitamin D exposure,calcium intake,balanced diet,consult doctor
+105,Scoliosis,physical therapy,brace support,exercise,consult doctor
+106,Fracture,immobilization,rest,apply ice,consult doctor
+107,Sprain,rest,ice,compression,elevation
+108,Burns,cool water,apply ointment,cover with sterile cloth,consult doctor
+109,Heat stroke,move to cool place,hydrate,apply cool cloths,seek medical help
+110,Hypothermia,warm gradually,remove wet clothes,drink warm fluids,seek medical help
+111,Poisoning,seek immediate help,do not induce vomiting,identify poison,call emergency
+112,Snake bite,immobilize limb,seek medical help,avoid movement,stay calm
+113,Allergic rhinitis,avoid allergens,use antihistamines,keep environment clean,consult doctor
+114,Astigmatism,use corrective lenses,regular eye exams,consult doctor,avoid strain
+115,Myopia,use glasses,limit screen time,regular checkups,eye exercises
+116,Hyperopia,use corrective lenses,consult doctor,regular eye exams,avoid strain
+117,Motion sickness,avoid heavy meals,focus on horizon,medication,rest
+118,Altitude sickness,ascend slowly,hydrate,rest,descend if severe
+119,Jet lag,adjust sleep schedule,stay hydrated,expose to sunlight,rest
+120,Sunburn,apply aloe vera,avoid sun exposure,drink fluids,use sunscreen
+121,Frostbite,warm slowly,avoid rubbing,seek medical help,cover affected area
+122,Boils,apply warm compress,maintain hygiene,avoid squeezing,consult doctor
+123,Warts,use medicated creams,avoid picking,keep area clean,consult doctor
+124,Cold sores,apply antiviral cream,avoid touching,maintain hygiene,consult doctor
+125,Ingrown toenail,soak in warm water,keep clean,wear proper shoes,consult doctor
+126,Dandruff,use medicated shampoo,maintain scalp hygiene,avoid stress,consult doctor
+127,Hair loss,balanced diet,avoid stress,use mild shampoo,consult doctor
+128,PCOS,exercise,balanced diet,medication,consult doctor
+129,Endometriosis,pain management,medication,consult doctor,rest
+130,Menstrual cramps,apply heat,pain relievers,rest,exercise
+131,Infertility,consult specialist,healthy lifestyle,medication,reduce stress
+132,Erectile dysfunction,consult doctor,exercise,reduce stress,medication
+133,Prostatitis,antibiotics,drink fluids,rest,consult doctor
+134,Kidney stones,drink water,pain management,medication,consult doctor
+135,Chronic kidney disease,limit salt,monitor blood pressure,medication,consult doctor
+136,Nephrotic syndrome,low salt diet,medication,monitor protein intake,consult doctor
+137,Bladder infection,drink fluids,antibiotics,maintain hygiene,consult doctor
+138,Testicular torsion,seek emergency surgery,rest,avoid movement,consult doctor
+139,Hernia,avoid heavy lifting,wear support belt,consult doctor,surgery if needed
+140,Varicocele,wear support,avoid heavy lifting,consult doctor,monitor condition
