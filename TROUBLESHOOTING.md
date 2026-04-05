@@ -6,6 +6,30 @@ Common issues and solutions for HealthGuard disease prediction system.
 
 ## Installation & Setup Issues
 
+### "ModuleNotFoundError: No module named 'numpy._core'" or "InconsistentVersionWarning"
+
+**Problem:** Model pickle artifacts were created with different numpy/scikit-learn/joblib versions than the deployment runtime.
+
+**What is now implemented in this project:**
+- On startup, the app attempts to load model artifacts.
+- If loading fails, it automatically runs train.py in the current environment to regenerate compatible artifacts.
+- The app then retries loading and starts normally when retraining succeeds.
+
+**How to verify runtime model state:**
+- Open the diagnostics endpoint: /api/model/runtime-info
+- Check these fields:
+  - model_loaded
+  - auto_retrained
+  - load_error
+  - retrain_error
+  - versions (python, numpy, scikit_learn, joblib)
+
+**Additional recommended checks:**
+- Compare package versions in deployment with your local environment using pip freeze.
+- Keep requirements.txt pinned and rebuild the deployment image after dependency updates.
+
+---
+
 ### "ModuleNotFoundError: No module named 'flask'"
 
 **Problem:** Flask not installed in virtual environment

@@ -6,9 +6,12 @@ import os
 import json
 import re
 import random
+import subprocess
+import sys
 import numpy as np
 import pandas as pd
 import joblib
+import sklearn
 from datetime import datetime, timedelta, timezone
 import secrets
 import requests
@@ -53,10 +56,87 @@ app = create_app(os.getenv("FLASK_ENV", "development"))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 
-clf = joblib.load(os.path.join(MODEL_DIR, "model.pkl"))
-all_symptoms = joblib.load(os.path.join(MODEL_DIR, "symptom_list.pkl"))
-severity_map = joblib.load(os.path.join(MODEL_DIR, "severity_map.pkl"))
-symptom_index = {s: i for i, s in enumerate(all_symptoms)}
+_model_runtime_info = {
+    "loaded": False,
+    "load_error": None,
+    "auto_retrained": False,
+    "retrain_error": None,
+}
+
+
+def _model_artifact_paths():
+    return {
+        "model": os.path.join(MODEL_DIR, "model.pkl"),
+        "symptom_list": os.path.join(MODEL_DIR, "symptom_list.pkl"),
+        "severity_map": os.path.join(MODEL_DIR, "severity_map.pkl"),
+    }
+
+
+def _load_model_artifacts():
+    paths = _model_artifact_paths()
+    loaded_clf = joblib.load(paths["model"])
+    loaded_symptoms = joblib.load(paths["symptom_list"])
+    loaded_severity = joblib.load(paths["severity_map"])
+    loaded_index = {s: i for i, s in enumerate(loaded_symptoms)}
+    return loaded_clf, loaded_symptoms, loaded_severity, loaded_index
+
+
+def _retrain_model_artifacts():
+    train_script = os.path.join(BASE_DIR, "train.py")
+    if not os.path.exists(train_script):
+        raise RuntimeError("train.py not found; cannot auto-retrain model artifacts")
+
+    result = subprocess.run(
+        [sys.executable, train_script],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        stderr_tail = (result.stderr or "").strip()[-1000:]
+        stdout_tail = (result.stdout or "").strip()[-1000:]
+        raise RuntimeError(
+            "Auto-retrain failed. "
+            f"Exit code={result.returncode}. "
+            f"stderr={stderr_tail or 'empty'}. stdout={stdout_tail or 'empty'}"
+        )
+
+
+def _initialize_model_artifacts():
+    global clf, all_symptoms, severity_map, symptom_index
+
+    try:
+        clf, all_symptoms, severity_map, symptom_index = _load_model_artifacts()
+        _model_runtime_info["loaded"] = True
+        _model_runtime_info["load_error"] = None
+        return
+    except Exception as exc:
+        _model_runtime_info["loaded"] = False
+        _model_runtime_info["load_error"] = str(exc)
+        app.logger.warning("Model artifact load failed; attempting auto-retrain: %s", exc)
+
+    try:
+        _retrain_model_artifacts()
+        clf, all_symptoms, severity_map, symptom_index = _load_model_artifacts()
+        _model_runtime_info["loaded"] = True
+        _model_runtime_info["auto_retrained"] = True
+        _model_runtime_info["retrain_error"] = None
+        app.logger.info("Model artifacts auto-retrained and loaded successfully")
+    except Exception as exc:
+        _model_runtime_info["loaded"] = False
+        _model_runtime_info["retrain_error"] = str(exc)
+        app.logger.exception("Model initialization failed after auto-retrain attempt")
+        raise RuntimeError(
+            "Model artifacts could not be loaded. "
+            "This is often caused by numpy/scikit-learn/joblib version mismatch. "
+            "Pin compatible versions and retrain model artifacts in the deployment environment. "
+            f"Details: {exc}"
+        )
+
+
+_initialize_model_artifacts()
 
 # ── Load reference datasets ───────────────────────────────────────────────────
 description_df = pd.read_csv(os.path.join(BASE_DIR, "description.csv"))
@@ -1041,6 +1121,25 @@ def favicon():
 def health_check():
     """Health check endpoint"""
     return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
+
+
+@app.route("/api/model/runtime-info", methods=["GET"])
+def model_runtime_info():
+    """Expose non-sensitive model runtime diagnostics for deployment debugging."""
+    return jsonify(
+        {
+            "model_loaded": _model_runtime_info.get("loaded", False),
+            "auto_retrained": _model_runtime_info.get("auto_retrained", False),
+            "load_error": _model_runtime_info.get("load_error"),
+            "retrain_error": _model_runtime_info.get("retrain_error"),
+            "versions": {
+                "python": sys.version.split()[0],
+                "numpy": np.__version__,
+                "scikit_learn": sklearn.__version__,
+                "joblib": joblib.__version__,
+            },
+        }
+    )
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
