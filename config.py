@@ -52,6 +52,28 @@ class Config:
     ABHA_CLIENT_SECRET = os.environ.get("ABHA_CLIENT_SECRET", "")
     ABHA_CM_ID = os.environ.get("ABHA_CM_ID", "")
     ABHA_REDIRECT_URI = os.environ.get("ABHA_REDIRECT_URI", "http://localhost:5000/api/abha/callback")
+
+    # LLM Review Layer (OpenRouter)
+    ENABLE_LLM_REVIEW = _get_bool_env("ENABLE_LLM_REVIEW", False)
+    LLM_FORCE_ALL_CASES = _get_bool_env("LLM_FORCE_ALL_CASES", False)
+    LLM_STRICT_FORCE_MODE = _get_bool_env("LLM_STRICT_FORCE_MODE", False)
+    LLM_FORCE_BELOW_CONFIDENCE = float(os.environ.get("LLM_FORCE_BELOW_CONFIDENCE", 25.0))
+    LLM_WEAK_SUPPORT_THRESHOLD = float(os.environ.get("LLM_WEAK_SUPPORT_THRESHOLD", 35.0))
+    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+    OPENROUTER_API_KEY_FALLBACK = os.environ.get("OPENROUTER_API_KEY_FALLBACK", "")
+    OPENROUTER_API_KEY_TERTIARY = os.environ.get("OPENROUTER_API_KEY_TERTIARY", "")
+    OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "qwen/qwen3-next-80b-a3b-instruct:free")
+    OPENROUTER_MODEL_FALLBACK = os.environ.get("OPENROUTER_MODEL_FALLBACK", "openai/gpt-oss-120b:free")
+    OPENROUTER_MODEL_TERTIARY = os.environ.get("OPENROUTER_MODEL_TERTIARY", "qwen/qwen3.6-plus:free")
+    OPENROUTER_API_URL = os.environ.get("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
+    OPENROUTER_TIMEOUT_SECONDS = int(os.environ.get("OPENROUTER_TIMEOUT_SECONDS", 20))
+    OPENROUTER_RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("OPENROUTER_RATE_LIMIT_COOLDOWN_SECONDS", 120))
+    OPENROUTER_BILLING_COOLDOWN_SECONDS = int(os.environ.get("OPENROUTER_BILLING_COOLDOWN_SECONDS", 900))
+    OPENROUTER_SITE_URL = os.environ.get("OPENROUTER_SITE_URL", "")
+    OPENROUTER_SITE_NAME = os.environ.get("OPENROUTER_SITE_NAME", "HealthGuard")
+    # Backward-compatible aliases
+    OPENROUTER_APP_URL = os.environ.get("OPENROUTER_APP_URL", "")
+    OPENROUTER_APP_NAME = os.environ.get("OPENROUTER_APP_NAME", "HealthGuard")
     
     # CORS
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")

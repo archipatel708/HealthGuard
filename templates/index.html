@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HealthGuard - Disease Prediction & ABHA Integration</title>
+  <title>HealthGuard | Clinical Intelligence Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
+<body class="healthguard-ui">
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header>
     <div class="header-inner">
@@ -18,7 +21,7 @@
         </svg>
         <span>HealthGuard</span>
       </div>
-      <p class="tagline">Intelligent Disease Prediction with ABHA Integration</p>
+      <p class="tagline">Intelligent Disease Prediction System</p>
       <nav class="nav-menu" id="navMenu" style="display: none;">
         <button id="profileBtn" class="nav-link">Profile</button>
         <button id="historyBtn" class="nav-link">History</button>
@@ -31,6 +34,7 @@
   <main>
     <!-- LOGIN SCREEN -->
     <section id="loginSection" class="card login-card">
+      <p class="eyebrow">Secure Access</p>
       <h2>Welcome to HealthGuard</h2>
       <p class="hint">Sign in or create an account to get started</p>
       
@@ -43,7 +47,7 @@
         Request OTP
       </button>
       
-      <div id="otpSection" class="hidden" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+      <div id="otpSection" class="hidden otp-section">
         <p class="hint">Enter the 6-digit OTP sent to your email</p>
         <div class="form-group">
           <label for="otpInput">OTP Code</label>
@@ -52,7 +56,7 @@
         <button id="verifyOtpBtn" class="btn-primary" style="width: 100%;">
           Verify OTP
         </button>
-        <p style="text-align: center; margin-top: 10px; font-size: 12px; color: #666;">
+        <p class="otp-resend-wrap">
           <button id="resendOtpBtn" class="link-btn">Resend OTP</button>
         </p>
       </div>
@@ -71,32 +75,45 @@
       <!-- PREDICTION TAB -->
       <section id="predictionTab" class="tab-content active">
         <div class="card symptom-card">
-          <h2>Select Your Symptoms</h2>
-          <p class="hint">Search and pick all symptoms you are experiencing</p>
+          <p class="eyebrow">Clinical Screening</p>
+          <h2>Describe Your Symptoms</h2>
+          <p class="hint">Write your symptoms in a short paragraph. We will interpret and map them to model symptoms automatically.</p>
 
-          <div class="search-wrap">
-            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                 stroke-linejoin="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input type="text" id="symptomSearch" placeholder="Type to search symptoms…"
-                   autocomplete="off" aria-label="Search symptoms" />
+          <div class="form-group">
+            <label>Prediction Gender</label>
+            <div class="gender-radio-group" role="radiogroup" aria-label="Prediction gender">
+              <label class="gender-radio-option" for="predictionGenderM">
+                <input type="radio" id="predictionGenderM" name="predictionGender" value="M" />
+                <span>Male</span>
+              </label>
+              <label class="gender-radio-option" for="predictionGenderF">
+                <input type="radio" id="predictionGenderF" name="predictionGender" value="F" />
+                <span>Female</span>
+              </label>
+            </div>
           </div>
 
-          <div id="selectedChips" class="chip-container" aria-live="polite"></div>
-          <ul id="symptomList" class="symptom-list" role="listbox" aria-label="Available symptoms"></ul>
+          <div class="form-group">
+            <label for="symptomNarrative">Symptoms (paragraph input)</label>
+            <textarea id="symptomNarrative" rows="5" placeholder="Example: I have fever since yesterday, dry cough, mild headache, and throat irritation."></textarea>
+          </div>
+
+          <div id="interpretedSymptomsWrap" class="hidden">
+            <p class="hint" style="margin-bottom: 8px;">Interpreted symptoms passed to model:</p>
+            <div id="interpretedChips" class="chip-container" aria-live="polite"></div>
+          </div>
 
           <div class="actions">
-            <button id="predictBtn" class="btn-primary" disabled>
+            <button id="predictBtn" class="btn-primary">
               Predict Disease
             </button>
-            <button id="clearBtn" class="btn-secondary">Clear All</button>
+            <button id="clearNarrativeBtn" class="btn-secondary">Clear</button>
           </div>
         </div>
 
         <!-- OPTIONAL HEALTH DATA -->
         <div class="card">
+          <p class="eyebrow">Data Enrichment</p>
           <h3>Optional Health Vitals (for enhanced analysis)</h3>
           <div class="health-form">
             <div class="form-group">
@@ -150,6 +167,7 @@
       <!-- HISTORY TAB -->
       <section id="historyTab" class="tab-content hidden">
         <div class="card">
+          <p class="eyebrow">Audit Trail</p>
           <h2>Prediction History</h2>
           <div class="history-table-wrap">
             <table class="history-table" aria-label="Prediction history table">
@@ -171,6 +189,7 @@
       <!-- PROFILE TAB -->
       <section id="profileTab" class="tab-content hidden">
         <div class="card">
+          <p class="eyebrow">Account</p>
           <h2>My Profile</h2>
           <div class="profile-form">
             <div class="form-group">
@@ -209,6 +228,7 @@
       <!-- ABHA TAB -->
       <section id="abhaTab" class="tab-content hidden">
         <div class="card">
+          <p class="eyebrow">Interoperability</p>
           <h2>ABHA (Ayushman Bharat Health Account)</h2>
           <p class="hint">Link your ABHA account to access your health records directly from the government system</p>
           
@@ -255,6 +275,13 @@
           </div>
         </div>
       </section>
+    </section>
+
+    <section id="systemTerminal" class="system-terminal" aria-live="polite">
+      <p class="terminal-title">System Terminal</p>
+      <div id="terminalLog" class="terminal-log">
+        <p class="terminal-line">[SYSTEM] Engine ready <span class="cursor" aria-hidden="true"></span></p>
+      </div>
     </section>
 
     <!-- LOADING & ERROR OVERLAYS -->

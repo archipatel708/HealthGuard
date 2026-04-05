@@ -3,14 +3,18 @@ Enhanced Flask backend with Email+OTP Authentication, Data Persistence, and ABHA
 """
 
 import os
+import json
+import re
+import random
 import numpy as np
 import pandas as pd
 import joblib
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import secrets
+import requests
 from dotenv import load_dotenv
 
-from flask import Flask, jsonify, render_template, request, abort, url_for
+from flask import Flask, jsonify, render_template, request, abort, url_for, current_app
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from sqlalchemy.exc import IntegrityError
@@ -21,7 +25,8 @@ from auth import AuthService, token_required
 from abha import ABHAService
 
 # Load environment variables from .env before creating app/config.
-load_dotenv()
+# override=True avoids stale shell/session variables silently disabling features.
+load_dotenv(override=True)
 
 # ── Initialize Flask App ──────────────────────────────────────────────────────
 def create_app(config_name="development"):
@@ -67,6 +72,140 @@ for _, row in precautions_df.iterrows():
     precs = [str(row[c]).strip() for c in ["Precaution_1", "Precaution_2", "Precaution_3", "Precaution_4"]
              if pd.notna(row[c]) and str(row[c]).strip() not in ("", "nan")]
     prec_map[row["Disease"]] = precs
+
+
+_openrouter_cooldown_until = None
+
+GENDER_ALIASES = {
+    "m": "M",
+    "male": "M",
+    "man": "M",
+    "f": "F",
+    "female": "F",
+    "woman": "F",
+    "o": "O",
+    "other": "O",
+    "non-binary": "O",
+    "nonbinary": "O",
+}
+
+FEMALE_ONLY_SYMPTOMS = {
+    "abnormal_menstruation",
+    "missed_periods",
+    "heavy_menstrual_bleeding",
+    "spotting_between_periods",
+    "vaginal_discharge",
+}
+
+MALE_ONLY_SYMPTOMS = {
+    "testicular_pain",
+    "erectile_dysfunction",
+}
+
+FEMALE_DISEASE_KEYWORDS = [
+    "menstrual",
+    "endometriosis",
+    "pcos",
+    "ovar",
+    "uter",
+    "vagin",
+]
+
+MALE_DISEASE_KEYWORDS = [
+    "prostate",
+    "prostatitis",
+    "testicular",
+    "erectile",
+    "varicocele",
+]
+
+# Layperson phrase fallback map for symptom narrative parsing.
+COMMON_SYMPTOM_PHRASE_MAP = {
+    "fever": ["high_fever", "mild_fever"],
+    "temperature": ["high_fever", "mild_fever"],
+    "cold": ["runny_nose", "congestion"],
+    "runny nose": ["runny_nose"],
+    "blocked nose": ["congestion"],
+    "stuffy nose": ["congestion"],
+    "sneezing": ["continuous_sneezing"],
+    "cough": ["cough", "dry_cough"],
+    "dry cough": ["dry_cough"],
+    "breathlessness": ["shortness_of_breath", "breathlessness"],
+    "shortness of breath": ["shortness_of_breath"],
+    "wheezing": ["wheezing"],
+    "chest tightness": ["chest_tightness"],
+    "chest pain": ["chest_pain"],
+    "throat pain": ["throat_irritation"],
+    "sore throat": ["throat_irritation"],
+    "headache": ["headache"],
+    "migraine": ["headache", "light_sensitivity", "visual_disturbances"],
+    "nausea": ["nausea"],
+    "vomit": ["vomiting"],
+    "vomiting": ["vomiting"],
+    "dizzy": ["dizziness"],
+    "dizziness": ["dizziness"],
+    "tired": ["fatigue"],
+    "fatigue": ["fatigue"],
+    "weakness": ["general_weakness"],
+    "body pain": ["muscle_pain"],
+    "muscle pain": ["muscle_pain"],
+    "joint pain": ["joint_pain"],
+    "shoulder pain": ["joint_pain", "muscle_pain"],
+    "back pain": ["back_pain"],
+    "neck pain": ["neck_pain"],
+    "knee pain": ["knee_pain"],
+    "abdominal pain": ["abdominal_pain", "stomach_pain"],
+    "stomach pain": ["stomach_pain"],
+    "acidity": ["acidity", "heartburn", "acid_reflux"],
+    "heartburn": ["heartburn", "acid_reflux"],
+    "burning urination": ["burning_micturition", "painful_urination"],
+    "frequent urination": ["frequent_urination", "polyuria"],
+    "period pain": ["abnormal_menstruation", "cramps"],
+    "menstrual": ["abnormal_menstruation", "heavy_menstrual_bleeding"],
+}
+
+DUMMY_ABHA_ISSUE_CATALOG = [
+    {
+        "condition": "Type 2 Diabetes",
+        "details": "Diagnosed previously; periodic high sugar episodes",
+        "category": "metabolic",
+    },
+    {
+        "condition": "Shoulder Injury After Accident",
+        "details": "Old trauma-related shoulder pain with intermittent flare-ups",
+        "category": "musculoskeletal",
+    },
+    {
+        "condition": "Forearm Fracture (Healed)",
+        "details": "Past fracture with occasional pain during overuse",
+        "category": "musculoskeletal",
+    },
+    {
+        "condition": "Asthma History",
+        "details": "Episodic breathing discomfort triggered by allergens",
+        "category": "respiratory",
+    },
+    {
+        "condition": "Hypertension",
+        "details": "Known blood pressure variability requiring monitoring",
+        "category": "cardiometabolic",
+    },
+    {
+        "condition": "Migraine History",
+        "details": "Recurrent migraine with sensitivity to light",
+        "category": "neurological",
+    },
+    {
+        "condition": "Lumbar Strain After Fall",
+        "details": "Previous lower back injury with recurrent pain",
+        "category": "musculoskeletal",
+    },
+    {
+        "condition": "Kidney Stone Episode",
+        "details": "Past renal colic episode; advised hydration",
+        "category": "renal",
+    },
+]
 
 
 def _safe_float(value):
@@ -168,6 +307,718 @@ def analyze_vitals_impact(health_data):
         "triage_level": triage_level,
         "confidence_penalty": confidence_penalty,
     }
+
+
+def _extract_first_json_object(text):
+    """Extract first JSON object from model text output."""
+    if not text:
+        return None
+
+    raw = str(text).strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+
+    candidate = raw[start:end + 1]
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+
+def _openrouter_is_in_cooldown():
+    """Return whether OpenRouter calls are temporarily paused after hard failures."""
+    global _openrouter_cooldown_until
+    if _openrouter_cooldown_until is None:
+        return False
+    if datetime.now(timezone.utc) >= _openrouter_cooldown_until:
+        _openrouter_cooldown_until = None
+        return False
+    return True
+
+
+def _set_openrouter_cooldown(seconds):
+    """Pause OpenRouter calls for a bounded cooldown period."""
+    global _openrouter_cooldown_until
+    safe_seconds = max(5, min(int(seconds), 3600))
+    _openrouter_cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=safe_seconds)
+
+
+def _generate_dummy_abha_past_illnesses_for_user(user_id):
+    """Generate synthetic ABHA-like past illness entries for demo mode."""
+    sample_count = random.randint(2, 4)
+    sampled = random.sample(DUMMY_ABHA_ISSUE_CATALOG, k=sample_count)
+
+    issues = []
+    this_year = datetime.utcnow().year
+    for item in sampled:
+        years_ago = random.randint(1, 8)
+        issues.append(
+            {
+                "condition": item["condition"],
+                "details": item["details"],
+                "category": item["category"],
+                "event_year": this_year - years_ago,
+                "source": "abha_dummy",
+            }
+        )
+    return issues
+
+
+def get_user_latest_past_illnesses(user_id):
+    """Return most recent non-empty past illnesses from stored health records."""
+    records = HealthRecord.query.filter_by(user_id=user_id).order_by(HealthRecord.created_at.desc()).all()
+    for record in records:
+        if isinstance(record.past_illnesses, list) and record.past_illnesses:
+            return record.past_illnesses
+    return []
+
+
+def analyze_medical_history_impact(chosen_symptoms, past_illnesses):
+    """Derive lightweight recurrence context from past medical issues."""
+    if not chosen_symptoms or not past_illnesses:
+        return {
+            "used": False,
+            "confidence_penalty": 0.0,
+            "flags": [],
+        }
+
+    chosen = set(chosen_symptoms)
+    text_blob = " ".join(
+        f"{item.get('condition', '')} {item.get('details', '')}".lower()
+        for item in past_illnesses
+        if isinstance(item, dict)
+    )
+
+    flags = []
+    penalty = 0.0
+
+    musculoskeletal_symptoms = {
+        "joint_pain",
+        "muscle_pain",
+        "back_pain",
+        "neck_pain",
+        "knee_pain",
+        "hip_joint_pain",
+        "movement_stiffness",
+        "painful_walking",
+    }
+    if any(sym in chosen for sym in musculoskeletal_symptoms) and any(
+        marker in text_blob for marker in {"injury", "fracture", "accident", "strain", "fall", "trauma"}
+    ):
+        flags.append("Past injury/fracture may explain recurrent musculoskeletal pain")
+        penalty += 4.0
+
+    diabetic_markers = {"polyuria", "irregular_sugar_level", "excessive_hunger", "fatigue", "weight_loss"}
+    if any(sym in chosen for sym in diabetic_markers) and "diabetes" in text_blob:
+        flags.append("Past diabetes history may influence current metabolic symptoms")
+        penalty += 3.0
+
+    respiratory_markers = {"shortness_of_breath", "wheezing", "dry_cough", "chest_tightness", "rapid_breathing"}
+    if any(sym in chosen for sym in respiratory_markers) and "asthma" in text_blob:
+        flags.append("Past asthma history may indicate recurrence/exacerbation")
+        penalty += 3.0
+
+    return {
+        "used": bool(flags),
+        "confidence_penalty": min(8.0, round(penalty, 1)),
+        "flags": flags,
+    }
+
+
+def canonicalize_gender(value):
+    """Normalize user-supplied gender values into M/F/O buckets."""
+    if value is None:
+        return None
+    key = str(value).strip().lower()
+    return GENDER_ALIASES.get(key)
+
+
+def validate_gender_symptom_compatibility(patient_gender, chosen_symptoms):
+    """Reject symptom patterns that are physiologically incompatible with profile gender."""
+    if patient_gender not in {"M", "F"}:
+        return {"ok": True, "conflicting": []}
+
+    chosen = set(chosen_symptoms or [])
+    if patient_gender == "M":
+        conflicting = sorted(s for s in chosen if s in FEMALE_ONLY_SYMPTOMS)
+    else:
+        conflicting = sorted(s for s in chosen if s in MALE_ONLY_SYMPTOMS)
+
+    return {
+        "ok": len(conflicting) == 0,
+        "conflicting": conflicting,
+    }
+
+
+def is_disease_gender_compatible(patient_gender, disease_name):
+    """Check whether a disease name is incompatible with the patient's profile gender."""
+    if patient_gender not in {"M", "F"} or not disease_name:
+        return True
+
+    text = str(disease_name).strip().lower()
+    if patient_gender == "M":
+        return not any(marker in text for marker in FEMALE_DISEASE_KEYWORDS)
+    return not any(marker in text for marker in MALE_DISEASE_KEYWORDS)
+
+
+def _direct_symptom_match_from_text(symptom_text):
+    """Fast deterministic phrase matching against known symptom names."""
+    normalized = re.sub(r"[^a-z0-9\s]", " ", str(symptom_text or "").lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    padded = f" {normalized} "
+
+    matches = set()
+    for symptom in all_symptoms:
+        as_phrase = symptom.replace("_", " ")
+        if f" {as_phrase} " in padded:
+            matches.add(symptom)
+    return sorted(matches)
+
+
+def _keyword_symptom_match_from_text(symptom_text):
+    """Fallback mapping from common plain-language phrases to known model symptoms."""
+    normalized = re.sub(r"[^a-z0-9\s]", " ", str(symptom_text or "").lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    matches = set()
+    for phrase, mapped in COMMON_SYMPTOM_PHRASE_MAP.items():
+        if phrase in normalized:
+            for symptom in mapped:
+                if symptom in symptom_index:
+                    matches.add(symptom)
+    return sorted(matches)
+
+
+def interpret_symptoms_from_text(symptom_text, patient_gender=None):
+    """Convert free-text symptom narration to known model symptom tokens."""
+    text = str(symptom_text or "").strip()
+    if not text:
+        return {
+            "symptoms": [],
+            "llm_used": False,
+            "source": "none",
+            "reason": "No symptom text provided",
+        }
+
+    direct_matches = _direct_symptom_match_from_text(text)
+    keyword_matches = _keyword_symptom_match_from_text(text)
+
+    api_keys = []
+    primary_key = (current_app.config.get("OPENROUTER_API_KEY") or "").strip()
+    fallback_key = (current_app.config.get("OPENROUTER_API_KEY_FALLBACK") or "").strip()
+    tertiary_key = (current_app.config.get("OPENROUTER_API_KEY_TERTIARY") or "").strip()
+    for key in [primary_key, fallback_key, tertiary_key]:
+        if key and key not in api_keys:
+            api_keys.append(key)
+
+    model_name = (current_app.config.get("OPENROUTER_MODEL") or "").strip()
+    if not api_keys or not model_name or _openrouter_is_in_cooldown():
+        merged = []
+        seen = set()
+        for symptom in direct_matches + keyword_matches:
+            if symptom in symptom_index and symptom not in seen:
+                merged.append(symptom)
+                seen.add(symptom)
+
+        compatible = validate_gender_symptom_compatibility(patient_gender, merged)
+        filtered = [s for s in merged if s not in compatible.get("conflicting", [])]
+        return {
+            "symptoms": filtered,
+            "llm_used": False,
+            "source": "direct+keyword_match",
+            "reason": "LLM unavailable or paused; used deterministic parsing",
+        }
+
+    selection_gender = "male" if patient_gender == "M" else "female" if patient_gender == "F" else "other"
+    prompt = (
+        "Extract symptoms from this patient narrative and map them ONLY to the provided allowed_symptoms list. "
+        "Return JSON only: {\"symptoms\": [\"symptom_name\", ...]}. "
+        "Keep it conservative: include only explicitly present symptoms and avoid speculation. "
+        "Respect profile gender and avoid incompatible sex-specific symptoms.\n\n"
+        f"patient_gender: {selection_gender}\n"
+        f"allowed_symptoms: {json.dumps(all_symptoms, ensure_ascii=True)}\n"
+        f"narrative: {text}"
+    )
+
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": "You map symptom text to an allowed symptom vocabulary."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0,
+    }
+
+    headers = {"Content-Type": "application/json"}
+    site_url = (
+        (current_app.config.get("OPENROUTER_SITE_URL") or "").strip()
+        or (current_app.config.get("OPENROUTER_APP_URL") or "").strip()
+    )
+    site_name = (
+        (current_app.config.get("OPENROUTER_SITE_NAME") or "").strip()
+        or (current_app.config.get("OPENROUTER_APP_NAME") or "").strip()
+    )
+    if site_url:
+        headers["HTTP-Referer"] = site_url
+    if site_name:
+        headers["X-OpenRouter-Title"] = site_name
+
+    llm_candidates = []
+    try:
+        for key in api_keys:
+            headers["Authorization"] = f"Bearer {key}"
+            resp = requests.post(
+                url=current_app.config.get("OPENROUTER_API_URL"),
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=current_app.config.get("OPENROUTER_TIMEOUT_SECONDS", 20),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            parsed = _extract_first_json_object(content)
+            if isinstance(parsed, dict) and isinstance(parsed.get("symptoms"), list):
+                for symptom in parsed.get("symptoms", []):
+                    clean = str(symptom).strip().lower()
+                    if clean in symptom_index:
+                        llm_candidates.append(clean)
+                if llm_candidates:
+                    break
+    except requests.exceptions.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code in (429, 402):
+            cooldown = current_app.config.get("OPENROUTER_RATE_LIMIT_COOLDOWN_SECONDS", 120)
+            if status_code == 402:
+                cooldown = current_app.config.get("OPENROUTER_BILLING_COOLDOWN_SECONDS", 900)
+            _set_openrouter_cooldown(cooldown)
+    except Exception:
+        pass
+
+    combined = []
+    seen = set()
+    for symptom in llm_candidates + direct_matches + keyword_matches:
+        if symptom in symptom_index and symptom not in seen:
+            combined.append(symptom)
+            seen.add(symptom)
+
+    compatibility = validate_gender_symptom_compatibility(patient_gender, combined)
+    filtered = [s for s in combined if s not in compatibility.get("conflicting", [])]
+
+    return {
+        "symptoms": filtered,
+        "llm_used": bool(llm_candidates),
+        "source": "llm+direct+keyword" if llm_candidates else "direct+keyword_match",
+        "reason": "Symptoms interpreted from narrative text",
+    }
+
+
+def apply_prediction_guardrails(chosen_symptoms, current_disease, current_confidence, top3):
+    """Apply deterministic fallback corrections for clearly implausible mappings."""
+    chosen = set(chosen_symptoms or [])
+    if not chosen:
+        return {
+            "applied": False,
+            "disease": current_disease,
+            "confidence": current_confidence,
+            "reason": "no_symptoms",
+        }
+
+    # Guardrail 1: isolated/common nasal-respiratory symptom patterns should not map to unrelated diseases.
+    respiratory_markers = {
+        "runny_nose",
+        "continuous_sneezing",
+        "congestion",
+        "throat_irritation",
+        "cough",
+        "dry_cough",
+        "chest_tightness",
+        "shortness_of_breath",
+        "breathlessness",
+        "patches_in_throat",
+    }
+    severe_red_flags = {
+        "high_fever",
+        "blood_in_sputum",
+        "chest_pain",
+        "difficulty_breathing",
+        "rapid_breathing",
+    }
+    implausible_for_isolated_nasal = {
+        "Fungal infection",
+        "Urinary tract infection",
+        "Dimorphic hemmorhoids(piles)",
+        "Acne",
+        "Arthritis",
+        "Hypertension",
+        "AIDS",
+        "Diabetes",
+        "Hypothyroidism",
+        "Hyperthyroidism",
+        "Varicose veins",
+    }
+
+    if "runny_nose" in chosen:
+        respiratory_count = sum(1 for s in chosen if s in respiratory_markers)
+        has_red_flags = any(s in chosen for s in severe_red_flags)
+
+        if current_disease in implausible_for_isolated_nasal and respiratory_count >= 1 and not has_red_flags:
+            fallback_disease = "Common Cold"
+            if "continuous_sneezing" in chosen and "cough" not in chosen and "dry_cough" not in chosen:
+                fallback_disease = "Allergy"
+
+            # Keep confidence conservative on heuristic overrides.
+            fallback_confidence = min(float(current_confidence), 45.0)
+
+            # If fallback already exists in top3, anchor confidence to that probability when available.
+            for item in top3 or []:
+                if item.get("disease") == fallback_disease:
+                    try:
+                        fallback_confidence = max(25.0, min(55.0, float(item.get("probability", fallback_confidence))))
+                    except (TypeError, ValueError):
+                        pass
+                    break
+
+            return {
+                "applied": True,
+                "disease": fallback_disease,
+                "confidence": round(float(fallback_confidence), 1),
+                "reason": "nasal_pattern_implausible_mapping_corrected",
+            }
+
+    return {
+        "applied": False,
+        "disease": current_disease,
+        "confidence": current_confidence,
+        "reason": "no_guardrail_trigger",
+    }
+
+
+def llm_review_prediction(symptoms, top3, base_prediction, base_confidence, vitals_analysis=None, patient_gender=None, medical_history=None):
+    """Optionally review ML prediction with OpenRouter and return an adjusted suggestion."""
+    if not current_app.config.get("ENABLE_LLM_REVIEW", False):
+        return {
+            "enabled": False,
+            "used": False,
+            "reason": "LLM review disabled (ENABLE_LLM_REVIEW is false at runtime)",
+        }
+
+    api_keys = []
+    primary_key = (current_app.config.get("OPENROUTER_API_KEY") or "").strip()
+    fallback_key = (current_app.config.get("OPENROUTER_API_KEY_FALLBACK") or "").strip()
+    tertiary_key = (current_app.config.get("OPENROUTER_API_KEY_TERTIARY") or "").strip()
+    # Prediction review should hit tertiary credentials first.
+    for k in [tertiary_key, primary_key, fallback_key]:
+        if k and k not in api_keys:
+            api_keys.append(k)
+
+    if not api_keys:
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": "OPENROUTER_API_KEY missing (and no fallback/tertiary key configured)",
+        }
+
+    if _openrouter_is_in_cooldown():
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": "OpenRouter temporarily paused after recent API limit/billing error",
+        }
+
+    candidate_diseases = [item.get("disease") for item in top3 if item.get("disease")]
+    if base_prediction and base_prediction not in candidate_diseases:
+        candidate_diseases.insert(0, base_prediction)
+
+    if not candidate_diseases:
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": "No candidate diseases available",
+        }
+
+    top_support = 0.0
+    try:
+        top_support = max(float(item.get("probability", 0.0)) for item in (top3 or []))
+    except (TypeError, ValueError):
+        top_support = float(base_confidence or 0.0)
+
+    weak_support_threshold = float(current_app.config.get("LLM_WEAK_SUPPORT_THRESHOLD", 35.0))
+    weak_support_mode = top_support < weak_support_threshold
+
+    known_disease_catalog = [str(c) for c in clf.classes_]
+    selection_pool = known_disease_catalog if weak_support_mode else candidate_diseases
+    selection_pool = [d for d in selection_pool if is_disease_gender_compatible(patient_gender, d)]
+
+    if not selection_pool:
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": "No gender-compatible candidate diseases available",
+        }
+
+    prompt_payload = {
+        "symptoms": symptoms,
+        "medical_history": medical_history or [],
+        "ml_prediction": {
+            "disease": base_prediction,
+            "confidence": base_confidence,
+            "top3": top3,
+        },
+        "vitals_analysis": vitals_analysis,
+        "weak_support_mode": weak_support_mode,
+        "weak_support_threshold": weak_support_threshold,
+        "top_support": top_support,
+        "top3_candidates": candidate_diseases,
+        "allowed_diseases": selection_pool,
+    }
+
+    system_prompt = (
+        "You are a conservative clinical triage sanity-checker for a symptom-based prediction app. "
+        "You are NOT diagnosing disease; you are validating whether the ML output is plausible. "
+        "Prioritize common, symptom-consistent conditions over rare/unlikely classes unless strong evidence exists. "
+        "Never invent diseases and never use knowledge outside the provided candidates. "
+        "If weak_support_mode=false: choose ONLY from top3_candidates. "
+        "If weak_support_mode=true: you may choose from allowed_diseases (full known disease catalog) based on symptoms. "
+        "Decision policy: "
+        "1) If top ML choice is plausible, keep it (override=false). "
+        "2) Override when current choice is clearly inconsistent with symptom pattern or weak_support_mode=true. "
+        "3) If symptom evidence is weak/ambiguous, lower confidence and set caution_level appropriately. "
+        "4) Keep rationale concise and evidence-based from given symptoms/vitals only. "
+        "Output must be ONLY a JSON object with EXACT keys: "
+        "selected_disease, adjusted_confidence, override, rationale, caution_level. "
+        "Types: selected_disease=string from allowed_diseases, adjusted_confidence=number 1-100, "
+        "override=boolean, rationale=string <= 220 chars, caution_level in [low,moderate,high]."
+    )
+
+    user_prompt = (
+        "Task: review ML prediction and return a safer final screening output.\n"
+        "Important examples of bad mapping: isolated mild symptoms (like runny nose) should not map to unlikely fungal/systemic diagnoses unless strongly justified.\n"
+        "Past medical history may explain recurrent symptoms; consider recurrence context before overriding.\n"
+        "If symptoms suggest common respiratory illness, prefer a common respiratory candidate from allowed_diseases.\n"
+        "If none strongly fits, keep the best candidate but reduce confidence and raise caution_level.\n\n"
+        "Return JSON only. No markdown, no explanation outside JSON.\n\n"
+        f"INPUT_JSON:\n{json.dumps(prompt_payload, ensure_ascii=True)}"
+    )
+
+    base_headers = {
+        "Content-Type": "application/json",
+    }
+
+    site_url = (
+        (current_app.config.get("OPENROUTER_SITE_URL") or "").strip()
+        or (current_app.config.get("OPENROUTER_APP_URL") or "").strip()
+    )
+    site_name = (
+        (current_app.config.get("OPENROUTER_SITE_NAME") or "").strip()
+        or (current_app.config.get("OPENROUTER_APP_NAME") or "").strip()
+    )
+    if site_url:
+        base_headers["HTTP-Referer"] = site_url
+    if site_name:
+        base_headers["X-OpenRouter-Title"] = site_name
+
+    models = []
+    primary_model = (current_app.config.get("OPENROUTER_MODEL") or "").strip()
+    fallback_model = (current_app.config.get("OPENROUTER_MODEL_FALLBACK") or "").strip()
+    tertiary_model = (current_app.config.get("OPENROUTER_MODEL_TERTIARY") or "").strip()
+
+    def _add_model_candidates(model_name):
+        if not model_name:
+            return
+        if model_name not in models:
+            models.append(model_name)
+        # Some providers expose the same model without the ':free' suffix.
+        if model_name.endswith(":free"):
+            alt = model_name[:-5]
+            if alt and alt not in models:
+                models.append(alt)
+
+    _add_model_candidates(tertiary_model)
+    _add_model_candidates(primary_model)
+    _add_model_candidates(fallback_model)
+
+    if not models:
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": "OPENROUTER_MODEL missing",
+        }
+
+    base_payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.1,
+    }
+
+    last_http_exc = None
+    last_http_context = None
+    try:
+        data = None
+        used_model = None
+        for model_idx, model_name in enumerate(models):
+            payload = dict(base_payload)
+            payload["model"] = model_name
+
+            for key_idx, key in enumerate(api_keys):
+                headers = dict(base_headers)
+                headers["Authorization"] = f"Bearer {key}"
+
+                try:
+                    response = requests.post(
+                        url=current_app.config.get("OPENROUTER_API_URL"),
+                        headers=headers,
+                        data=json.dumps(payload),
+                        timeout=current_app.config.get("OPENROUTER_TIMEOUT_SECONDS", 20),
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    used_model = model_name
+                    break
+                except requests.exceptions.HTTPError as exc:
+                    last_http_exc = exc
+                    status_code = exc.response.status_code if exc.response is not None else None
+                    body_preview = ""
+                    if exc.response is not None and exc.response.text:
+                        body_preview = exc.response.text[:280].replace("\n", " ")
+                    last_http_context = {
+                        "model": model_name,
+                        "key_index": key_idx + 1,
+                        "status": status_code,
+                        "body_preview": body_preview,
+                    }
+
+                    # Try next key/model automatically on common auth/quota/rate failures.
+                    has_next_key = key_idx < len(api_keys) - 1
+                    has_next_model = model_idx < len(models) - 1
+                    if status_code in (401, 402, 403, 429):
+                        if has_next_key or has_next_model:
+                            current_app.logger.warning(
+                                "OpenRouter model '%s' key #%s failed with %s; trying next option",
+                                model_name,
+                                key_idx + 1,
+                                status_code,
+                            )
+                            continue
+
+                    # For other failures, still try remaining options if available.
+                    if has_next_key or has_next_model:
+                        current_app.logger.warning(
+                            "OpenRouter model '%s' key #%s request failed; trying next option: %s",
+                            model_name,
+                            key_idx + 1,
+                            exc,
+                        )
+                        continue
+
+                    raise
+
+            if data is not None:
+                break
+
+        if data is None and last_http_exc is not None:
+            if last_http_context:
+                current_app.logger.warning(
+                    "OpenRouter final failure model='%s' key#%s status=%s body=%s",
+                    last_http_context.get("model"),
+                    last_http_context.get("key_index"),
+                    last_http_context.get("status"),
+                    last_http_context.get("body_preview"),
+                )
+            raise last_http_exc
+
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        reviewed = _extract_first_json_object(content)
+        if not isinstance(reviewed, dict):
+            return {
+                "enabled": True,
+                "used": False,
+                "reason": "LLM returned non-JSON content",
+            }
+
+        selected_disease = str(reviewed.get("selected_disease", "")).strip()
+        if selected_disease not in selection_pool:
+            selected_disease = base_prediction
+
+        try:
+            adjusted_confidence = float(reviewed.get("adjusted_confidence", base_confidence))
+        except (TypeError, ValueError):
+            adjusted_confidence = float(base_confidence)
+        adjusted_confidence = max(1.0, min(100.0, round(adjusted_confidence, 1)))
+
+        caution_level = str(reviewed.get("caution_level", "moderate")).strip().lower()
+        if caution_level not in {"low", "moderate", "high"}:
+            caution_level = "moderate"
+
+        should_override = bool(reviewed.get("override", False)) and selected_disease != base_prediction
+
+        return {
+            "enabled": True,
+            "used": True,
+            "model": used_model or current_app.config.get("OPENROUTER_MODEL"),
+            "selected_disease": selected_disease,
+            "adjusted_confidence": adjusted_confidence,
+            "override": should_override,
+            "rationale": str(reviewed.get("rationale", "")).strip()[:240],
+            "caution_level": caution_level,
+            "weak_support_mode": weak_support_mode,
+            "selection_scope": "catalog" if weak_support_mode else "top3",
+        }
+    except requests.exceptions.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code in (429, 402):
+            retry_after = 0
+            if exc.response is not None:
+                retry_after_header = (exc.response.headers.get("Retry-After") or "").strip()
+                try:
+                    retry_after = int(retry_after_header)
+                except (TypeError, ValueError):
+                    retry_after = 0
+
+            if status_code == 429:
+                fallback = current_app.config.get("OPENROUTER_RATE_LIMIT_COOLDOWN_SECONDS", 120)
+                reason = "OpenRouter rate limit reached (429)"
+            else:
+                fallback = current_app.config.get("OPENROUTER_BILLING_COOLDOWN_SECONDS", 900)
+                reason = "OpenRouter billing/spend limit reached (402)"
+
+            _set_openrouter_cooldown(retry_after or fallback)
+            current_app.logger.warning("LLM review skipped: %s", reason)
+            return {
+                "enabled": True,
+                "used": False,
+                "reason": reason,
+            }
+
+        current_app.logger.warning("LLM review failed with HTTP error: %s", exc)
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": f"LLM request failed: {str(exc)}",
+        }
+    except Exception as exc:
+        current_app.logger.warning("LLM review failed: %s", exc)
+        return {
+            "enabled": True,
+            "used": False,
+            "reason": f"LLM request failed: {str(exc)}",
+        }
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -315,25 +1166,68 @@ def predict(user):
     }
     """
     data = request.get_json(force=True, silent=True)
-    if not data or "symptoms" not in data:
-        abort(400, "Request body must be JSON with a 'symptoms' array.")
+    if not data:
+        abort(400, "Request body must be valid JSON.")
 
-    raw_symptoms = data["symptoms"]
-    if not isinstance(raw_symptoms, list):
-        abort(400, "'symptoms' must be an array.")
+    prediction_gender = canonicalize_gender(data.get("prediction_gender"))
+    patient_gender = prediction_gender or canonicalize_gender(user.gender)
+    if patient_gender not in {"M", "F"}:
+        return jsonify({
+            "error": "Gender selection is mandatory before prediction. Provide prediction_gender as Male/Female or update profile.",
+            "required_action": "update_profile_gender"
+        }), 400
+
+    # Sync runtime-selected gender to profile for consistent future predictions.
+    if prediction_gender in {"M", "F"} and canonicalize_gender(user.gender) != prediction_gender:
+        user.gender = prediction_gender
+
+    raw_symptoms = data.get("symptoms")
+    symptom_text = str(data.get("symptom_text", "")).strip()
+    interpreted = {
+        "symptoms": [],
+        "llm_used": False,
+        "source": "none",
+        "reason": "No symptom text provided",
+    }
+
+    if raw_symptoms is None and not symptom_text:
+        abort(400, "Provide either a 'symptoms' array or a non-empty 'symptom_text' field.")
+
+    if raw_symptoms is not None and not isinstance(raw_symptoms, list):
+        abort(400, "'symptoms' must be an array when provided.")
 
     # Sanitise input: keep only known symptoms
     chosen = []
     unknown = []
-    for s in raw_symptoms:
-        clean = str(s).strip().lower()
-        if clean in symptom_index:
-            chosen.append(clean)
-        else:
-            unknown.append(s)
+
+    if isinstance(raw_symptoms, list):
+        for s in raw_symptoms:
+            clean = str(s).strip().lower()
+            if clean in symptom_index:
+                chosen.append(clean)
+            else:
+                unknown.append(s)
+
+    if symptom_text:
+        interpreted = interpret_symptoms_from_text(symptom_text, patient_gender=patient_gender)
+        for sym in interpreted.get("symptoms", []):
+            if sym in symptom_index and sym not in chosen:
+                chosen.append(sym)
 
     if not chosen:
-        abort(400, "None of the supplied symptoms were recognised.")
+        return jsonify({
+            "error": "Could not map the symptom description to known symptoms. Try a clearer phrase like fever, cough, chest pain, shoulder pain, or headache.",
+            "interpreted_symptoms": interpreted,
+            "unknown_symptoms": unknown,
+        }), 422
+
+    compatibility = validate_gender_symptom_compatibility(patient_gender, chosen)
+    if not compatibility.get("ok"):
+        return jsonify({
+            "error": "Some symptoms are incompatible with your selected gender profile. Please update profile gender or symptom text.",
+            "incompatible_symptoms": compatibility.get("conflicting", []),
+            "gender": patient_gender,
+        }), 400
 
     # Build feature vector
     vec = np.zeros((1, len(all_symptoms)), dtype=np.float32)
@@ -350,21 +1244,101 @@ def predict(user):
         if proba[i] > 0
     ]
 
-    base_confidence = round(float(proba[np.argmax(proba)]) * 100, 1)
+    compatible_top3 = [
+        item for item in top3
+        if is_disease_gender_compatible(patient_gender, item.get("disease"))
+    ]
+    if not compatible_top3:
+        return jsonify({
+            "error": "No gender-compatible disease candidates found for the supplied symptoms.",
+            "gender": patient_gender,
+            "suggestion": "Please review your symptom description and profile details.",
+        }), 422
+
+    top3 = compatible_top3
+
+    if not is_disease_gender_compatible(patient_gender, disease):
+        disease = top3[0]["disease"]
+
+    base_confidence = next(
+        (item["probability"] for item in top3 if item.get("disease") == disease),
+        round(float(proba[np.argmax(proba)]) * 100, 1),
+    )
 
     health_data = data.get("health_data") if isinstance(data.get("health_data"), dict) else None
     vitals_analysis = analyze_vitals_impact(health_data)
+    past_illnesses = get_user_latest_past_illnesses(user.id)
+    history_analysis = analyze_medical_history_impact(chosen, past_illnesses)
 
     confidence = base_confidence
     if vitals_analysis:
         confidence = max(20.0, round(base_confidence - vitals_analysis["confidence_penalty"], 1))
+    if history_analysis.get("used"):
+        confidence = max(18.0, round(confidence - history_analysis.get("confidence_penalty", 0.0), 1))
     
+    force_llm_threshold = float(current_app.config.get("LLM_FORCE_BELOW_CONFIDENCE", 25.0))
+    force_llm_mode = confidence < force_llm_threshold
+    force_llm_all_cases = bool(current_app.config.get("LLM_FORCE_ALL_CASES", False))
+    strict_force_mode = bool(current_app.config.get("LLM_STRICT_FORCE_MODE", False))
+
+    llm_review = llm_review_prediction(
+        symptoms=chosen,
+        top3=top3,
+        base_prediction=disease,
+        base_confidence=confidence,
+        vitals_analysis=vitals_analysis,
+        patient_gender=patient_gender,
+        medical_history=past_illnesses,
+    )
+
+    # Strict mode: when always-force is enabled, require LLM for every prediction.
+    # Otherwise, require LLM only for low-confidence predictions.
+    requires_llm = force_llm_all_cases or (strict_force_mode and force_llm_mode)
+    if requires_llm and not llm_review.get("used"):
+        return jsonify({
+            "error": "Prediction requires LLM review, but LLM review is currently unavailable.",
+            "confidence_score": confidence,
+            "force_llm_threshold": force_llm_threshold,
+            "force_llm_all_cases": force_llm_all_cases,
+            "strict_force_mode": strict_force_mode,
+            "ai_review": llm_review,
+            "required_action": "configure_or_enable_llm",
+        }), 503
+
+    final_disease = disease
+    final_confidence = confidence
+    if llm_review.get("used") and (force_llm_all_cases or force_llm_mode):
+        final_disease = llm_review.get("selected_disease") or disease
+        final_confidence = llm_review.get("adjusted_confidence", confidence)
+    elif llm_review.get("used") and llm_review.get("override"):
+        final_disease = llm_review.get("selected_disease") or disease
+        final_confidence = llm_review.get("adjusted_confidence", confidence)
+    elif llm_review.get("used"):
+        final_confidence = llm_review.get("adjusted_confidence", confidence)
+
+    llm_unavailable_below_threshold = (force_llm_all_cases or force_llm_mode) and not llm_review.get("used")
+
+    guardrail_result = {
+        "applied": False,
+        "reason": "skipped_because_llm_used",
+    }
+    if not llm_review.get("used"):
+        guardrail_result = apply_prediction_guardrails(
+            chosen_symptoms=chosen,
+            current_disease=final_disease,
+            current_confidence=final_confidence,
+            top3=top3,
+        )
+        if guardrail_result.get("applied"):
+            final_disease = guardrail_result.get("disease", final_disease)
+            final_confidence = guardrail_result.get("confidence", final_confidence)
+
     # Store prediction in database
     prediction = PredictionHistory(
         user_id=user.id,
         symptoms=chosen,
-        predicted_disease=disease,
-        confidence_score=confidence,
+        predicted_disease=final_disease,
+        confidence_score=final_confidence,
         top3_predictions=top3,
         notes=data.get("notes"),
         severity_level=data.get("severity_level") or (vitals_analysis["triage_level"] if vitals_analysis else None)
@@ -390,14 +1364,32 @@ def predict(user):
 
     return jsonify({
         "prediction_id": prediction.id,
-        "disease": disease,
-        "description": desc_map.get(disease, "No description available."),
-        "precautions": prec_map.get(disease, []),
-        "confidence_score": confidence,
+        "disease": final_disease,
+        "description": desc_map.get(final_disease, "No description available."),
+        "precautions": prec_map.get(final_disease, []),
+        "confidence_score": final_confidence,
         "base_confidence_score": base_confidence,
+        "ml_prediction": {
+            "disease": disease,
+            "confidence_score": confidence,
+        },
+        "prediction_strategy": {
+            "force_llm_all_cases": force_llm_all_cases,
+            "force_llm_mode": force_llm_mode,
+            "force_llm_threshold": force_llm_threshold,
+            "strict_force_mode": strict_force_mode,
+        },
+        "ai_review": llm_review,
+        "llm_unavailable_below_threshold": llm_unavailable_below_threshold,
+        "guardrail": guardrail_result,
         "vitals_used": bool(vitals_analysis),
         "vitals_analysis": vitals_analysis,
+        "past_medical_history": past_illnesses,
+        "history_analysis": history_analysis,
         "top3": top3,
+        "patient_gender": patient_gender,
+        "interpreted_symptoms": interpreted,
+        "symptoms_used": chosen,
         "unknown_symptoms": unknown,
         "stored": True
     }), 200
@@ -720,6 +1712,41 @@ def get_abha_health_data(user):
         }), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch ABHA health data: {str(e)}"}), 500
+
+
+@app.route("/api/abha/link-dummy", methods=["POST"])
+@token_required
+def link_dummy_abha_data(user):
+    """Link synthetic ABHA profile and seed random past illnesses for demo mode."""
+    try:
+        past_illnesses = _generate_dummy_abha_past_illnesses_for_user(user.id)
+
+        user.abha_id = f"DUMMY-ABHA-{user.id:06d}"
+        user.abha_linked_at = datetime.utcnow()
+        user.updated_at = datetime.utcnow()
+
+        health_record = HealthRecord(
+            user_id=user.id,
+            abha_data={
+                "source": "dummy_abha",
+                "generated_at": datetime.utcnow().isoformat(),
+                "records": past_illnesses,
+            },
+            past_illnesses=past_illnesses,
+        )
+
+        db.session.add(health_record)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Dummy ABHA data linked successfully",
+            "abha_id": user.abha_id,
+            "past_illnesses": past_illnesses,
+            "record_id": health_record.id,
+        }), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to link dummy ABHA data: {str(exc)}"}), 500
 
 
 @app.route("/api/abha/unlink", methods=["POST"])

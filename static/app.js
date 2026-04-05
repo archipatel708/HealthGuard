@@ -10,8 +10,7 @@
   let currentUser = null;
 
   // ── STATE ───────────────────────────────────────────────────────────────────
-  let allSymptoms = [];
-  let selected = new Set();
+  let interpretedSymptoms = [];
 
   // ── DOM REFS ────────────────────────────────────────────────────────────────
   // Auth
@@ -29,11 +28,12 @@
   const tabContents = document.querySelectorAll(".tab-content");
 
   // Prediction
-  const searchInput = document.getElementById("symptomSearch");
-  const symptomList = document.getElementById("symptomList");
-  const chipContainer = document.getElementById("selectedChips");
+  const symptomNarrative = document.getElementById("symptomNarrative");
+  const predictionGenderInputs = document.querySelectorAll('input[name="predictionGender"]');
+  const interpretedSymptomsWrap = document.getElementById("interpretedSymptomsWrap");
+  const interpretedChips = document.getElementById("interpretedChips");
   const predictBtn = document.getElementById("predictBtn");
-  const clearBtn = document.getElementById("clearBtn");
+  const clearNarrativeBtn = document.getElementById("clearNarrativeBtn");
   const resultSection = document.getElementById("resultSection");
   const diseaseName = document.getElementById("diseaseName");
   const diseaseDesc = document.getElementById("diseaseDescription");
@@ -77,17 +77,22 @@
   // Global
   const loader = document.getElementById("loader");
   const errorBox = document.getElementById("errorBox");
+  const profileBtn = document.getElementById("profileBtn");
+  const historyBtn = document.getElementById("historyBtn");
   const logoutBtn = document.getElementById("logoutBtn");
   const navMenu = document.getElementById("navMenu");
+  const terminalLog = document.getElementById("terminalLog");
 
   // ── INIT ────────────────────────────────────────────────────────────────────
   function init() {
+    logSystem("Client boot sequence started", "info");
     if (accessToken) {
       showApp();
-      loadSymptoms();
       loadProfile();
+      logSystem("Session token found, loading workspace", "success");
     } else {
       showLogin();
+      logSystem("No active session, waiting for OTP login", "info");
     }
 
     setupEventListeners();
@@ -105,9 +110,8 @@
     });
 
     // Prediction
-    searchInput.addEventListener("input", (e) => renderDropdown(e.target.value));
     predictBtn.addEventListener("click", handlePredict);
-    clearBtn.addEventListener("click", handleClearSymptoms);
+    clearNarrativeBtn.addEventListener("click", handleClearSymptoms);
 
     // Profile
     updateProfileBtn.addEventListener("click", handleUpdateProfile);
@@ -119,6 +123,12 @@
     abhaRequestType.addEventListener("change", handleAbhaRequestTypeChange);
 
     // Global
+    if (profileBtn) {
+      profileBtn.addEventListener("click", () => switchTab("profile"));
+    }
+    if (historyBtn) {
+      historyBtn.addEventListener("click", () => switchTab("history"));
+    }
     logoutBtn.addEventListener("click", handleLogout);
   }
 
@@ -137,6 +147,7 @@
     setButtonLoading(requestOtpBtn, true, "Sending OTP...");
     showLoader(true);
     showError("Requesting OTP...", "info");
+    logSystem("OTP request initiated", "info");
     try {
       const res = await fetch(`${API_BASE}/auth/request-otp`, {
         method: "POST",
@@ -156,9 +167,11 @@
       otpSection.classList.remove("hidden");
       otpInput.focus();
       showError(data.message || "OTP sent successfully", "success");
+      logSystem("OTP dispatched successfully", "success");
     } catch (err) {
       showLoader(false);
       showError("Network error: " + err.message);
+      logSystem("OTP request failed", "error");
     } finally {
       setButtonLoading(requestOtpBtn, false, "Request OTP");
     }
@@ -176,6 +189,7 @@
     setButtonLoading(verifyOtpBtn, true, "Verifying...");
     showLoader(true);
     showError("Verifying OTP...", "info");
+    logSystem("OTP verification started", "info");
     try {
       const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method: "POST",
@@ -202,11 +216,12 @@
 
       showError("Login successful", "success");
       showApp();
-      loadSymptoms();
       loadProfile();
+      logSystem("Authentication successful", "success");
     } catch (err) {
       showLoader(false);
       showError("Network error: " + err.message);
+      logSystem("Authentication failed", "error");
     } finally {
       setButtonLoading(verifyOtpBtn, false, "Verify OTP");
     }
@@ -226,98 +241,49 @@
     otpSection.classList.add("hidden");
 
     showLogin();
+    logSystem("Session terminated", "info");
   }
 
   // ╔════════════════════════════════════════════════════════════════════════════╗
   // ║                    PREDICTION FLOW                                         ║
   // ╚════════════════════════════════════════════════════════════════════════════╝
 
-  async function loadSymptoms() {
-    try {
-      const res = await fetch(`${API_BASE}/symptoms`);
-      if (!res.ok) throw new Error("Failed to load symptoms");
-      allSymptoms = await res.json();
-      renderDropdown("");
-    } catch (err) {
-      showError("Could not load symptoms: " + err.message);
+  function renderInterpretedSymptoms() {
+    interpretedChips.innerHTML = "";
+    if (!interpretedSymptoms.length) {
+      interpretedSymptomsWrap.classList.add("hidden");
+      return;
     }
-  }
 
-  function renderDropdown(filter) {
-    const q = filter.trim().toLowerCase();
-    const filtered = q
-      ? allSymptoms.filter(s =>
-          s.label.toLowerCase().includes(q) || s.value.includes(q)
-        )
-      : allSymptoms;
-
-    symptomList.innerHTML = "";
-
-    filtered.slice(0, 80).forEach(sym => {
-      const li = document.createElement("li");
-      li.setAttribute("role", "option");
-      li.setAttribute("aria-selected", selected.has(sym.value));
-      if (selected.has(sym.value)) li.classList.add("selected");
-
-      li.innerHTML =
-        `<span class="check-icon">${selected.has(sym.value) ? "✔" : ""}</span>` +
-        `<span>${escapeHtml(sym.label)}</span>`;
-
-      li.addEventListener("click", () => toggleSymptom(sym));
-      symptomList.appendChild(li);
-    });
-
-    if (filtered.length === 0) {
-      const li = document.createElement("li");
-      li.style.color = "var(--clr-muted)";
-      li.style.cursor = "default";
-      li.textContent = "No matching symptoms found.";
-      symptomList.appendChild(li);
-    }
-  }
-
-  function toggleSymptom(sym) {
-    if (selected.has(sym.value)) {
-      selected.delete(sym.value);
-    } else {
-      selected.add(sym.value);
-    }
-    renderChips();
-    renderDropdown(searchInput.value);
-    predictBtn.disabled = selected.size === 0;
-    showError("");
-    resultSection.classList.add("hidden");
-  }
-
-  function renderChips() {
-    chipContainer.innerHTML = "";
-    selected.forEach(val => {
-      const sym = allSymptoms.find(s => s.value === val);
-      const label = sym ? sym.label : val;
-
+    interpretedSymptomsWrap.classList.remove("hidden");
+    interpretedSymptoms.forEach(symptom => {
       const chip = document.createElement("span");
       chip.className = "chip";
-      chip.setAttribute("title", "Click to remove");
-      chip.innerHTML =
-        `<span>${escapeHtml(label)}</span>` +
-        `<span class="remove" aria-hidden="true">×</span>`;
-      chip.addEventListener("click", () => toggleSymptom({ value: val }));
-      chipContainer.appendChild(chip);
+      chip.innerHTML = `<span>${escapeHtml(symptom.replace(/_/g, " "))}</span>`;
+      interpretedChips.appendChild(chip);
     });
   }
 
   function handleClearSymptoms() {
-    selected.clear();
-    renderChips();
-    renderDropdown("");
-    predictBtn.disabled = true;
+    symptomNarrative.value = "";
+    interpretedSymptoms = [];
+    renderInterpretedSymptoms();
     resultSection.classList.add("hidden");
+    logSystem("Symptom narrative cleared", "info");
   }
 
   async function handlePredict() {
-    const symptoms = Array.from(selected);
-    if (symptoms.length === 0) {
-      showError("Please select at least one symptom");
+    const profileGender = (currentUser?.gender || "").toUpperCase();
+    const predictionGender = getSelectedPredictionGender() || profileGender;
+    if (!["M", "F"].includes(predictionGender)) {
+      showError("Please select prediction gender (Male/Female) or update your profile gender.");
+      logSystem("Prediction blocked: gender input missing", "error");
+      return;
+    }
+
+    const symptomText = symptomNarrative.value.trim();
+    if (!symptomText) {
+      showError("Please describe your symptoms before prediction");
       return;
     }
 
@@ -327,30 +293,47 @@
     if (heartRate.value) healthData.heart_rate = parseInt(heartRate.value);
 
     showLoader(true);
+    logSystem("Prediction request queued", "info");
     try {
       const res = await apiFetch(`${API_BASE}/predict`, {
         method: "POST",
         body: JSON.stringify({
-          symptoms,
+          prediction_gender: predictionGender,
+          symptom_text: symptomText,
           health_data: Object.keys(healthData).length > 0 ? healthData : null
         })
       });
 
-      if (!res.ok) throw new Error("Prediction failed");
-      const data = await res.json();
+      const payload = await safeParseJson(res);
+      if (!res.ok) {
+        throw new Error(extractErrorMessage(payload, "Prediction failed"));
+      }
+
+      const data = payload;
       showLoader(false);
 
       displayPrediction(data);
+      logSystem(`Prediction completed: ${data.disease || "unknown"}`, "success");
     } catch (err) {
       showLoader(false);
       showError("Prediction error: " + err.message);
+      logSystem("Prediction failed", "error");
     }
   }
 
   function displayPrediction(data) {
+    interpretedSymptoms = data.symptoms_used || [];
+    renderInterpretedSymptoms();
+
     diseaseName.textContent = data.disease;
     diseaseDesc.textContent = data.description;
-    confidenceScore.textContent = `Confidence: ${data.confidence_score}%`;
+    const aiReview = data.ai_review || {};
+    const aiLabel = aiReview.used ? " (AI-reviewed)" : "";
+    confidenceScore.textContent = `Confidence: ${data.confidence_score}%${aiLabel}`;
+
+    if (aiReview.used && aiReview.rationale) {
+      diseaseDesc.textContent = `${data.description}\n\nAI Review: ${aiReview.rationale}`;
+    }
 
     precautionsList.innerHTML = "";
     (data.precautions || []).forEach(prec => {
@@ -393,6 +376,7 @@
       age.value = user.age || "";
       gender.value = user.gender || "";
       phone.value = user.phone || "";
+      syncPredictionGenderFromProfile(user.gender);
 
       await loadHealthRecords();
       updateAbhaStatus(user);
@@ -421,9 +405,11 @@
       showLoader(false);
       showError("Profile updated successfully!", "success");
       await loadProfile();
+      logSystem("Profile update persisted", "success");
     } catch (err) {
       showLoader(false);
       showError("Update error: " + err.message);
+      logSystem("Profile update failed", "error");
     }
   }
 
@@ -436,6 +422,17 @@
       healthRecordsList.innerHTML = "";
       if (data.records && data.records.length > 0) {
         data.records.forEach(record => {
+          const pastIssues = Array.isArray(record.past_illnesses) ? record.past_illnesses : [];
+          const pastIssueSummary = pastIssues.length
+            ? pastIssues
+                .map(item => {
+                  if (item && typeof item === "object") return item.condition || item.details;
+                  return item;
+                })
+                .filter(Boolean)
+                .join(", ")
+            : "N/A";
+
           const div = document.createElement("div");
           div.className = "health-record-item";
           div.innerHTML = `
@@ -443,6 +440,7 @@
             <p><strong>BP:</strong> ${record.blood_pressure || "N/A"}</p>
             <p><strong>Temp:</strong> ${record.temperature || "N/A"}°C</p>
             <p><strong>HR:</strong> ${record.heart_rate || "N/A"} bpm</p>
+            <p><strong>Past Issues:</strong> ${escapeHtml(pastIssueSummary)}</p>
           `;
           healthRecordsList.appendChild(div);
         });
@@ -505,17 +503,29 @@
   async function handleLinkAbha() {
     showLoader(true);
     try {
-      const res = await apiFetch(`${API_BASE}/abha/authorization-url`);
-      if (!res.ok) throw new Error("Failed to get auth URL");
+      const res = await apiFetch(`${API_BASE}/abha/link-dummy`, {
+        method: "POST"
+      });
+      if (!res.ok) {
+        const payload = await safeParseJson(res);
+        throw new Error(extractErrorMessage(payload, "Failed to link dummy ABHA data"));
+      }
       const data = await res.json();
 
-      // In a real app, this would redirect to ABHA OAuth
-      // For now, show a message
-      showError("ABHA linking not fully configured. Please set ABHA_CLIENT_ID and ABHA_CLIENT_SECRET in .env file", "info");
+      abhaDataSection.classList.remove("hidden");
+      abhaData.textContent = JSON.stringify({
+        abha_id: data.abha_id,
+        past_illnesses: data.past_illnesses
+      }, null, 2);
+
+      showError("Dummy ABHA data linked and imported", "success");
+      logSystem("Dummy ABHA history imported for prediction context", "success");
+      await loadProfile();
       showLoader(false);
     } catch (err) {
       showLoader(false);
       showError("ABHA linking error: " + err.message);
+      logSystem("Dummy ABHA link failed", "error");
     }
   }
 
@@ -586,9 +596,11 @@
 
       abhaRequestOutput.textContent = JSON.stringify(data, null, 2);
       showError("ABHA request completed", "success");
+      logSystem(`ABHA operation succeeded: ${operation}`, "success");
     } catch (err) {
       showError("ABHA request error: " + err.message);
       abhaRequestOutput.textContent = `Error: ${err.message}`;
+      logSystem(`ABHA operation failed: ${operation || "unknown"}`, "error");
     } finally {
       showLoader(false);
       setButtonLoading(abhaRequestBtn, false, "Request via ABHA API");
@@ -651,6 +663,42 @@
     button.textContent = isLoading ? loadingText : button.dataset.defaultLabel;
   }
 
+  function getSelectedPredictionGender() {
+    const selectedInput = Array.from(predictionGenderInputs).find(input => input.checked);
+    return selectedInput ? String(selectedInput.value).toUpperCase() : "";
+  }
+
+  function syncPredictionGenderFromProfile(profileGender) {
+    const normalized = String(profileGender || "").trim().toUpperCase();
+    if (!["M", "F"].includes(normalized)) {
+      return;
+    }
+
+    predictionGenderInputs.forEach(input => {
+      input.checked = String(input.value).toUpperCase() === normalized;
+    });
+  }
+
+  function logSystem(message, level = "info") {
+    if (!terminalLog) return;
+
+    const line = document.createElement("p");
+    line.className = "terminal-line";
+
+    const stamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    let prefix = "SYSTEM";
+    if (level === "success") prefix = "OK";
+    if (level === "error") prefix = "ERR";
+
+    line.textContent = `[${stamp}] [${prefix}] ${message}`;
+    terminalLog.appendChild(line);
+
+    while (terminalLog.children.length > 12) {
+      terminalLog.removeChild(terminalLog.firstChild);
+    }
+    terminalLog.scrollTop = terminalLog.scrollHeight;
+  }
+
   async function safeParseJson(response) {
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) {
@@ -666,6 +714,25 @@
   function extractErrorMessage(payload, fallback = "Request failed") {
     if (!payload) return fallback;
     if (typeof payload === "string") return payload;
+
+    // Surface structured LLM gating details from /api/predict 503 responses.
+    if (payload.ai_review && typeof payload.ai_review === "object") {
+      const reason = typeof payload.ai_review.reason === "string" ? payload.ai_review.reason : "";
+      const base = typeof payload.error === "string" ? payload.error : fallback;
+      if (reason) {
+        return `${base} (${reason})`;
+      }
+    }
+
+    if (payload.required_action === "configure_or_enable_llm") {
+      const base = typeof payload.error === "string" ? payload.error : fallback;
+      const confidence = Number(payload.confidence_score);
+      const threshold = Number(payload.force_llm_threshold);
+      if (!Number.isNaN(confidence) && !Number.isNaN(threshold)) {
+        return `${base} (confidence ${confidence}% is below forced LLM threshold ${threshold}%)`;
+      }
+      return base;
+    }
 
     const primary = payload.error || payload.message;
     if (typeof primary === "string") return primary;

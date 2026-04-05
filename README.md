@@ -123,6 +123,12 @@ Predictions:
 - GET /api/predictions/history
 - GET /api/predictions/<id>
 
+Prediction behavior notes:
+
+- `/api/predict` now supports `symptom_text` (free-form paragraph input)
+- Profile gender (`M` or `F`) is mandatory before prediction
+- Gender-incompatible symptom/disease mappings are blocked to reduce false sex-specific predictions
+
 User and health records:
 
 - GET /api/user/profile
@@ -148,6 +154,63 @@ python train.py
 ```
 
 The script regenerates model/model.pkl, model/symptom_list.pkl, and model/severity_map.pkl.
+
+## ABHA Dummy Dataset (When API Is Inactive)
+
+Generate synthetic ABHA-like historical data and trend summaries:
+
+```bash
+python generate_abha_dummy_data.py
+```
+
+This writes:
+
+- `data/abha_dummy_history.csv` (visit-level historical records)
+- `data/abha_disease_trends.csv` (aggregated trend/signal view)
+
+### How to use the dummy ABHA dataset
+
+1. Ensure your project virtual environment is active.
+2. Run:
+
+```bash
+python generate_abha_dummy_data.py
+```
+
+3. Open `data/abha_dummy_history.csv` to inspect simulated longitudinal patient records:
+	- Includes `symptom_text`, interpreted symptoms, vitals, and diagnosed disease.
+	- Helps demonstrate how historical records accumulate over time.
+4. Open `data/abha_disease_trends.csv` to inspect trend analytics:
+	- `total_cases`
+	- `cases_last_90_days`
+	- `avg_recurrence_per_user`
+	- `signal_strength`
+5. Use these files for ABHA feature demos when live ABHA endpoints are unavailable.
+	- You can present this as "mock ABHA history" while keeping the same downstream prediction and analysis workflow.
+
+### In-app dummy ABHA linking (recommended demo flow)
+
+When users click **Link ABHA Account** on the ABHA tab, the app now supports a dummy mode endpoint:
+
+- `POST /api/abha/link-dummy`
+
+What it does:
+
+1. Links a synthetic ABHA ID to the logged-in user.
+2. Generates random past health issues for that user (for example: diabetes history, fracture/injury, asthma, hypertension).
+3. Stores them in `health_records.past_illnesses` and ABHA raw payload (`abha_data`).
+4. Makes this past history available during prediction.
+
+How prediction uses past history:
+
+- Past illnesses are loaded as part of prediction context.
+- Confidence is adjusted conservatively when symptom patterns suggest possible recurrence from prior issues (for example, old injury + current musculoskeletal pain).
+- LLM review context includes past medical history so the final output can account for recurrence narratives (for example, shoulder pain after old accident).
+
+### Notes
+
+- The dataset is synthetic and demo-only; do not treat it as real clinical data.
+- Re-run the script anytime to regenerate fresh sample history and trend summaries.
 
 ## Deployment
 
