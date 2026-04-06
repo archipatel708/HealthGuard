@@ -1252,7 +1252,7 @@ def request_otp():
             "user_id": user.id
         }), 200
     except Exception as e:
-        return jsonify({"error": f"Failed to request OTP: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/auth/verify-otp", methods=["POST"])

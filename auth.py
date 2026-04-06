@@ -1,8 +1,10 @@
 """
 Authentication utilities for email/OTP and JWT
 """
+import os
 import smtplib
 import secrets
+import traceback
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
@@ -20,19 +22,29 @@ class AuthService:
     def send_otp_email(email, otp_code):
         """Send OTP to user's email"""
         try:
-            mail_username = (current_app.config.get("MAIL_USERNAME") or "").strip()
-            mail_password = (current_app.config.get("MAIL_PASSWORD") or "").strip()
-            # Gmail app passwords are often copied with spaces; strip them for SMTP auth.
-            mail_password = mail_password.replace(" ", "")
+            smtp_host = (os.getenv("SMTP_HOST") or current_app.config.get("MAIL_SERVER") or "").strip()
+            smtp_port = int(os.getenv("SMTP_PORT") or current_app.config.get("MAIL_PORT") or 587)
+            smtp_user = (os.getenv("SMTP_USER") or current_app.config.get("MAIL_USERNAME") or "").strip()
+            smtp_pass = (os.getenv("SMTP_PASS") or current_app.config.get("MAIL_PASSWORD") or "").strip()
 
-            if not mail_username or not mail_password:
+            # Gmail app passwords are often copied with spaces; strip them for SMTP auth.
+            smtp_pass = smtp_pass.replace(" ", "")
+
+            current_app.logger.info(
+                "[SMTP DEBUG] HOST=%s, PORT=%s, USER=%s",
+                smtp_host,
+                smtp_port,
+                smtp_user,
+            )
+
+            if not smtp_host or not smtp_user or not smtp_pass:
                 return False, "Email service is not configured. Please set MAIL_USERNAME and MAIL_PASSWORD in .env"
 
-            if mail_username == "your-email@gmail.com" or mail_password == "your-app-password":
+            if smtp_user == "your-email@gmail.com" or smtp_pass == "your-app-password":
                 return False, "Email service is using placeholder credentials. Update MAIL_USERNAME and MAIL_PASSWORD in .env"
 
             msg = MIMEMultipart()
-            msg["From"] = current_app.config["MAIL_DEFAULT_SENDER"]
+            msg["From"] = smtp_user
             msg["To"] = email
             msg["Subject"] = current_app.config["OTP_EMAIL_SUBJECT"]
 
@@ -102,18 +114,25 @@ class AuthService:
             
             # Send email
             with smtplib.SMTP(
-                current_app.config["MAIL_SERVER"],
-                current_app.config["MAIL_PORT"],
+                smtp_host,
+                smtp_port,
                 timeout=10,
             ) as server:
+                server.set_debuglevel(1)
+                server.ehlo()
                 if current_app.config["MAIL_USE_TLS"]:
                     server.starttls()
-                server.login(mail_username, mail_password)
+                    server.ehlo()
+                server.login(smtp_user, smtp_pass)
                 server.send_message(msg)
             
+            current_app.logger.info("SMTP SUCCESS")
             return True, "OTP sent successfully"
         except Exception as e:
-            return False, f"Failed to send OTP: {str(e)}"
+            current_app.logger.error("SMTP FAILURE")
+            current_app.logger.error(str(e))
+            current_app.logger.error(traceback.format_exc())
+            return False, str(e)
     
     @staticmethod
     def create_or_get_user(email, phone=None):
