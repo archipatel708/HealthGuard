@@ -101,7 +101,11 @@ class AuthService:
             msg.attach(MIMEText(html_body, "html"))
             
             # Send email
-            with smtplib.SMTP(current_app.config["MAIL_SERVER"], current_app.config["MAIL_PORT"]) as server:
+            with smtplib.SMTP(
+                current_app.config["MAIL_SERVER"],
+                current_app.config["MAIL_PORT"],
+                timeout=10,
+            ) as server:
                 if current_app.config["MAIL_USE_TLS"]:
                     server.starttls()
                 server.login(mail_username, mail_password)
