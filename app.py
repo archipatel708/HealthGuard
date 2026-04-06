@@ -6,6 +6,7 @@ import os
 import json
 import re
 import random
+import logging
 import subprocess
 import sys
 import numpy as np
@@ -62,6 +63,12 @@ _model_runtime_info = {
     "retrain_error": None,
 }
 
+# Keep globals defined even when artifacts fail to load, so startup never crashes.
+clf = None
+all_symptoms = []
+severity_map = {}
+symptom_index = {}
+
 
 def _model_artifact_paths():
     return {
@@ -71,13 +78,41 @@ def _model_artifact_paths():
     }
 
 
+def safe_load_model(path, label="artifact"):
+    """Safely load a serialized artifact and return None on failure."""
+    try:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"{label} file missing: {path}")
+        loaded = joblib.load(path)
+        app.logger.info("Loaded %s successfully", label)
+        return loaded
+    except Exception as exc:
+        app.logger.warning("Failed to load %s: %s", label, exc)
+        return None
+
+
 def _load_model_artifacts():
     paths = _model_artifact_paths()
-    loaded_clf = joblib.load(paths["model"])
-    loaded_symptoms = joblib.load(paths["symptom_list"])
-    loaded_severity = joblib.load(paths["severity_map"])
+    loaded_clf = safe_load_model(paths["model"], label="model")
+    loaded_symptoms = safe_load_model(paths["symptom_list"], label="symptom_list")
+    loaded_severity = safe_load_model(paths["severity_map"], label="severity_map")
+
+    if loaded_clf is None or loaded_symptoms is None or loaded_severity is None:
+        return None, None, None, None
+
     loaded_index = {s: i for i, s in enumerate(loaded_symptoms)}
     return loaded_clf, loaded_symptoms, loaded_severity, loaded_index
+
+
+def _purge_model_artifacts():
+    """Best-effort cleanup of stale/corrupted artifacts before retraining."""
+    for key, path in _model_artifact_paths().items():
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                app.logger.warning("Removed stale %s artifact at %s", key, path)
+        except OSError as exc:
+            app.logger.warning("Unable to remove %s artifact %s: %s", key, path, exc)
 
 
 def _retrain_model_artifacts():
@@ -106,19 +141,35 @@ def _retrain_model_artifacts():
 def _initialize_model_artifacts():
     global clf, all_symptoms, severity_map, symptom_index
 
-    try:
-        clf, all_symptoms, severity_map, symptom_index = _load_model_artifacts()
+    clf_loaded, symptoms_loaded, severity_loaded, index_loaded = _load_model_artifacts()
+    if clf_loaded is not None:
+        clf, all_symptoms, severity_map, symptom_index = (
+            clf_loaded,
+            symptoms_loaded,
+            severity_loaded,
+            index_loaded,
+        )
         _model_runtime_info["loaded"] = True
         _model_runtime_info["load_error"] = None
         return
-    except Exception as exc:
-        _model_runtime_info["loaded"] = False
-        _model_runtime_info["load_error"] = str(exc)
-        app.logger.warning("Model artifact load failed; attempting auto-retrain: %s", exc)
+
+    _model_runtime_info["loaded"] = False
+    _model_runtime_info["load_error"] = "Failed to load one or more model artifacts"
+    app.logger.warning("Model artifact load failed; attempting auto-retrain")
 
     try:
+        _purge_model_artifacts()
         _retrain_model_artifacts()
-        clf, all_symptoms, severity_map, symptom_index = _load_model_artifacts()
+        clf_loaded, symptoms_loaded, severity_loaded, index_loaded = _load_model_artifacts()
+        if clf_loaded is None:
+            raise RuntimeError("Artifacts still unavailable after retrain")
+
+        clf, all_symptoms, severity_map, symptom_index = (
+            clf_loaded,
+            symptoms_loaded,
+            severity_loaded,
+            index_loaded,
+        )
         _model_runtime_info["loaded"] = True
         _model_runtime_info["auto_retrained"] = True
         _model_runtime_info["retrain_error"] = None
@@ -126,13 +177,8 @@ def _initialize_model_artifacts():
     except Exception as exc:
         _model_runtime_info["loaded"] = False
         _model_runtime_info["retrain_error"] = str(exc)
-        app.logger.exception("Model initialization failed after auto-retrain attempt")
-        raise RuntimeError(
-            "Model artifacts could not be loaded. "
-            "This is often caused by numpy/scikit-learn/joblib version mismatch. "
-            "Pin compatible versions and retrain model artifacts in the deployment environment. "
-            f"Details: {exc}"
-        )
+        app.logger.exception("Model initialization failed after auto-retrain attempt; continuing without model")
+        logging.error("Model load failed, fallback applied")
 
 
 _initialize_model_artifacts()
@@ -1247,6 +1293,9 @@ def refresh_token():
 @app.route("/api/symptoms", methods=["GET"])
 def get_symptoms():
     """Return the full list of symptoms (display-friendly labels)"""
+    if not _model_runtime_info.get("loaded", False) or not all_symptoms:
+        return jsonify({"error": "Model is not ready yet. Please retry shortly."}), 503
+
     display = [s.replace("_", " ").title() for s in all_symptoms]
     return jsonify([{"value": s, "label": d} for s, d in zip(all_symptoms, display)])
 
@@ -1266,6 +1315,16 @@ def predict(user):
     data = request.get_json(force=True, silent=True)
     if not data:
         abort(400, "Request body must be valid JSON.")
+
+    if not _model_runtime_info.get("loaded", False) or clf is None:
+        _initialize_model_artifacts()
+    if not _model_runtime_info.get("loaded", False) or clf is None:
+        return jsonify({
+            "error": "Prediction model is unavailable. Retraining is in progress or failed.",
+            "model_loaded": _model_runtime_info.get("loaded", False),
+            "load_error": _model_runtime_info.get("load_error"),
+            "retrain_error": _model_runtime_info.get("retrain_error"),
+        }), 503
 
     prediction_gender = canonicalize_gender(data.get("prediction_gender"))
     patient_gender = prediction_gender or canonicalize_gender(user.gender)
