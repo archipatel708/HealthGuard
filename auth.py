@@ -16,10 +16,6 @@ from flask_jwt_extended import create_access_token, create_refresh_token, jwt_re
 from models import db, User, OTP, IntegrityError
 
 
-class AuthService:
-    """Handle authentication operations"""
-    
-
 def get_gmail_service():
     creds = Credentials(
         token=None,
@@ -31,7 +27,11 @@ def get_gmail_service():
     )
     service = build("gmail", "v1", credentials=creds)
     return service
-    
+
+
+class AuthService:
+    """Handle authentication operations"""
+
     @staticmethod
     def send_otp_email(email, otp_code):
         """Send OTP to user's email via Gmail API (OAuth2)"""
@@ -62,7 +62,7 @@ def get_gmail_service():
             current_app.logger.error(str(e))
             current_app.logger.error(traceback.format_exc())
             return False, str(e)
-    
+
     @staticmethod
     def create_or_get_user(email, phone=None):
         """Create user if doesn't exist or get existing user"""
@@ -86,49 +86,49 @@ def get_gmail_service():
                     return existing
                 raise
         return user
-    
+
     @staticmethod
     def generate_otp(email):
         """Generate and store OTP for email"""
         # Delete previous unverified OTPs
         OTP.query.filter_by(email=email, is_used=False).delete()
-        
+
         # Create new OTP
         otp = OTP.create_otp(email, current_app.config["OTP_VALIDITY_MINUTES"])
         db.session.add(otp)
         db.session.commit()
-        
+
         # Send OTP via email
         success, message = AuthService.send_otp_email(email, otp.otp_code)
-        
+
         return otp, success, message
-    
+
     @staticmethod
     def verify_otp(email, otp_code):
         """Verify OTP and mark as used"""
         otp = OTP.query.filter_by(email=email, is_used=False).order_by(OTP.created_at.desc()).first()
-        
+
         if not otp:
             return False, "OTP not found or expired"
-        
+
         if otp.is_expired():
             return False, "OTP has expired"
-        
+
         if otp.attempts >= current_app.config["OTP_MAX_ATTEMPTS"]:
             return False, "Too many failed attempts. Request a new OTP"
-        
+
         if otp.otp_code != otp_code:
             otp.attempts += 1
             db.session.commit()
             return False, "Invalid OTP"
-        
+
         # Mark OTP as used
         otp.is_used = True
         otp.verified_at = datetime.utcnow()
         db.session.commit()
-        
+
         return True, "OTP verified successfully"
-    
+
     @staticmethod
     def generate_tokens(user_id):
         """Generate JWT access and refresh tokens"""
@@ -136,7 +136,7 @@ def get_gmail_service():
         identity = str(user_id)
         access_token = create_access_token(identity=identity)
         refresh_token = create_refresh_token(identity=identity)
-        
+
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -155,10 +155,10 @@ def token_required(f):
         except (TypeError, ValueError):
             return jsonify({"error": "Invalid token identity"}), 401
         user = User.query.get(user_id)
-        
+
         if not user or not user.is_active:
             return jsonify({"error": "User not found or inactive"}), 401
-        
+
         return f(user, *args, **kwargs)
-    
+
     return decorated
