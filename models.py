@@ -128,7 +128,12 @@ class MongoDB:
 
         # Migrate legacy indexes that incorrectly enforce uniqueness on null values.
         user_indexes = self.database.users.index_information()
-        for legacy_name in ("phone_1", "abha_id_1"):
+        for legacy_name in (
+            "phone_1",
+            "abha_id_1",
+            "phone_unique_non_null",
+            "abha_id_unique_non_null",
+        ):
             if legacy_name in user_indexes:
                 try:
                     self.database.users.drop_index(legacy_name)
@@ -140,13 +145,13 @@ class MongoDB:
             "phone",
             unique=True,
             name="phone_unique_non_null",
-            partialFilterExpression={"phone": {"$type": "string", "$ne": ""}},
+            partialFilterExpression={"phone": {"$type": "string", "$gt": ""}},
         )
         self.database.users.create_index(
             "abha_id",
             unique=True,
             name="abha_id_unique_non_null",
-            partialFilterExpression={"abha_id": {"$type": "string", "$ne": ""}},
+            partialFilterExpression={"abha_id": {"$type": "string", "$gt": ""}},
         )
         self.database.otps.create_index([("email", ASCENDING), ("created_at", DESCENDING)])
         self.database.prediction_history.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
