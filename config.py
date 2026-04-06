@@ -24,6 +24,7 @@ class Config:
     # Database (MongoDB)
     MONGODB_URI = (os.environ.get("MONGODB_URI", "mongodb://localhost:27017") or "mongodb://localhost:27017").strip()
     MONGODB_DB = (os.environ.get("MONGODB_DB", "disease_prediction") or "disease_prediction").strip()
+    FORCE_RETRAIN_MODEL_ON_STARTUP = _get_bool_env("FORCE_RETRAIN_MODEL_ON_STARTUP", False)
     
     # JWT
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "jwt-secret-key-change-in-production")

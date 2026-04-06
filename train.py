@@ -78,4 +78,4 @@ joblib.dump(clf, os.path.join(MODEL_DIR, "model.pkl"))
 joblib.dump(all_symptoms, os.path.join(MODEL_DIR, "symptom_list.pkl"))
 joblib.dump(severity_map, os.path.join(MODEL_DIR, "severity_map.pkl"))
 
-print("Saved → model/model.pkl, model/symptom_list.pkl, model/severity_map.pkl")
+print("Saved -> model/model.pkl, model/symptom_list.pkl, model/severity_map.pkl")

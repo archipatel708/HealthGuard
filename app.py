@@ -7,12 +7,14 @@ import json
 import re
 import random
 import logging
+import warnings
 import subprocess
 import sys
 import numpy as np
 import pandas as pd
 import joblib
 import sklearn
+from sklearn.exceptions import InconsistentVersionWarning
 from datetime import datetime, timedelta, timezone
 import secrets
 import requests
@@ -83,7 +85,27 @@ def safe_load_model(path, label="artifact"):
     try:
         if not os.path.exists(path):
             raise FileNotFoundError(f"{label} file missing: {path}")
-        loaded = joblib.load(path)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = joblib.load(path)
+
+        for warning_obj in caught:
+            warning_message = str(warning_obj.message)
+            warning_category = getattr(warning_obj, "category", Warning)
+            is_version_mismatch = (
+                warning_category is InconsistentVersionWarning
+                or warning_category.__name__ == "InconsistentVersionWarning"
+                or "Trying to unpickle estimator" in warning_message
+            )
+            if is_version_mismatch:
+                app.logger.warning(
+                    "Detected sklearn version mismatch while loading %s: %s",
+                    label,
+                    warning_message,
+                )
+                return None
+
         app.logger.info("Loaded %s successfully", label)
         return loaded
     except Exception as exc:
@@ -141,20 +163,28 @@ def _retrain_model_artifacts():
 def _initialize_model_artifacts():
     global clf, all_symptoms, severity_map, symptom_index
 
-    clf_loaded, symptoms_loaded, severity_loaded, index_loaded = _load_model_artifacts()
-    if clf_loaded is not None:
-        clf, all_symptoms, severity_map, symptom_index = (
-            clf_loaded,
-            symptoms_loaded,
-            severity_loaded,
-            index_loaded,
-        )
-        _model_runtime_info["loaded"] = True
-        _model_runtime_info["load_error"] = None
-        return
+    force_retrain = bool(app.config.get("FORCE_RETRAIN_MODEL_ON_STARTUP", False))
+    if force_retrain:
+        app.logger.warning("FORCE_RETRAIN_MODEL_ON_STARTUP is enabled; skipping direct artifact load")
+    else:
+        clf_loaded, symptoms_loaded, severity_loaded, index_loaded = _load_model_artifacts()
+        if clf_loaded is not None:
+            clf, all_symptoms, severity_map, symptom_index = (
+                clf_loaded,
+                symptoms_loaded,
+                severity_loaded,
+                index_loaded,
+            )
+            _model_runtime_info["loaded"] = True
+            _model_runtime_info["load_error"] = None
+            return
 
     _model_runtime_info["loaded"] = False
-    _model_runtime_info["load_error"] = "Failed to load one or more model artifacts"
+    _model_runtime_info["load_error"] = (
+        "Forced retrain requested"
+        if force_retrain
+        else "Failed to load one or more model artifacts"
+    )
     app.logger.warning("Model artifact load failed; attempting auto-retrain")
 
     try:
@@ -171,6 +201,7 @@ def _initialize_model_artifacts():
             index_loaded,
         )
         _model_runtime_info["loaded"] = True
+        _model_runtime_info["load_error"] = None
         _model_runtime_info["auto_retrained"] = True
         _model_runtime_info["retrain_error"] = None
         app.logger.info("Model artifacts auto-retrained and loaded successfully")
