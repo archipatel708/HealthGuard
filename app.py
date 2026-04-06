@@ -20,10 +20,9 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, abort, url_for, current_app
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from sqlalchemy.exc import IntegrityError
 
 from config import config
-from models import db, User, OTP, PredictionHistory, HealthRecord, ABHAToken
+from models import db, User, OTP, PredictionHistory, HealthRecord, ABHAToken, IntegrityError
 from auth import AuthService, token_required
 from abha import ABHAService
 

@@ -7,16 +7,16 @@ Professional-grade disease prediction platform with OTP authentication, user pro
 - End-to-end Flask API for auth, prediction, profile, and ABHA workflows
 - Email OTP login with JWT access and refresh tokens
 - Machine learning prediction pipeline using scikit-learn artifacts
-- Persistent user data with SQLAlchemy (SQLite by default)
+- Persistent user data with MongoDB (PyMongo)
 - Responsive single-page frontend (Vanilla JS + modern CSS)
 - Docker-ready runtime and deployment documentation
 
 ## Tech Stack
 
-- Backend: Flask, Flask-SQLAlchemy, Flask-JWT-Extended, Flask-CORS
+- Backend: Flask, PyMongo, Flask-JWT-Extended, Flask-CORS
 - ML: scikit-learn, pandas, numpy, joblib
 - Auth: OTP over SMTP + JWT
-- Storage: SQLite (default), configurable via DATABASE_URL
+- Storage: MongoDB, configurable via MONGODB_URI and MONGODB_DB
 - Frontend: HTML, CSS, JavaScript
 
 ## Python Compatibility
@@ -86,6 +86,8 @@ Create .env from .env.example and set required values:
 FLASK_ENV=development
 SECRET_KEY=replace-with-strong-secret
 JWT_SECRET_KEY=replace-with-strong-secret
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB=disease_prediction
 
 MAIL_SERVER=smtp.gmail.com
 MAIL_PORT=587
@@ -234,7 +236,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 - Use app passwords for SMTP credentials
 - Restrict CORS_ORIGINS in production
 - Add OTP rate limiting before public internet exposure
-- Prefer PostgreSQL for production workloads
+- Use MongoDB Atlas or a managed MongoDB deployment in production
 
 ## Troubleshooting
 
@@ -251,8 +253,7 @@ Dependency issues on latest Python:
 Database reset (development):
 
 ```powershell
-Remove-Item .\app.db -ErrorAction Ignore
-python -c "from app import app, db; app.app_context().push(); db.create_all(); print('Database initialized')"
+python -c "from app import app, db; app.app_context().push(); db.database.drop_collection('users'); db.database.drop_collection('otps'); db.database.drop_collection('prediction_history'); db.database.drop_collection('health_records'); db.database.drop_collection('abha_tokens'); db.create_all(); print('Collections initialized')"
 ```
 
 ## Contributing

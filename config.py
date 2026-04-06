@@ -21,12 +21,9 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
     DEBUG = os.environ.get("FLASK_ENV") == "development"
     
-    # Database
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL", 
-        f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}"
-    )
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Database (MongoDB)
+    MONGODB_URI = (os.environ.get("MONGODB_URI", "mongodb://localhost:27017") or "mongodb://localhost:27017").strip()
+    MONGODB_DB = (os.environ.get("MONGODB_DB", "disease_prediction") or "disease_prediction").strip()
     
     # JWT
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "jwt-secret-key-change-in-production")
@@ -91,7 +88,7 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     """Testing configuration"""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    MONGODB_DB = (os.environ.get("MONGODB_DB_TEST", "disease_prediction_test") or "disease_prediction_test").strip()
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=5)
 
 config = {

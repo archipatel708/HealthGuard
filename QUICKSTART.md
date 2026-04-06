@@ -186,7 +186,8 @@ python train.py
 flask shell
 
 # View database
-# app.db can be viewed with SQLite Browser
+# Connect to MongoDB and inspect collections
+# mongosh mongodb://localhost:27017/disease_prediction
 ```
 
 ## Production Checklist
@@ -196,7 +197,7 @@ Before deploying:
 - [ ] Change SECRET_KEY to random string
 - [ ] Change JWT_SECRET_KEY to random string
 - [ ] Set FLASK_ENV=production
-- [ ] Use DATABASE_URL with PostgreSQL/MySQL
+- [ ] Set MONGODB_URI and MONGODB_DB for production MongoDB
 - [ ] Setup HTTPS/SSL
 - [ ] Configure CORS properly
 - [ ] Use Gunicorn/Waitress instead of Flask dev server
