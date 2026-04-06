@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from flask import request, jsonify, current_app
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from models import db, User, OTP
+from models import db, User, OTP, IntegrityError
 
 
 class AuthService:
@@ -137,11 +137,25 @@ class AuthService:
     @staticmethod
     def create_or_get_user(email, phone=None):
         """Create user if doesn't exist or get existing user"""
-        user = User.query.filter_by(email=email).first()
+        normalized_email = (email or "").strip().lower()
+        user = User.query.filter_by(email=normalized_email).first()
         if not user:
-            user = User(email=email, phone=phone)
-            db.session.add(user)
-            db.session.commit()
+            payload = {"email": email}
+            clean_phone = (phone or "").strip()
+            if clean_phone:
+                payload["phone"] = clean_phone
+            payload["email"] = normalized_email
+
+            try:
+                user = User(**payload)
+                db.session.add(user)
+                db.session.commit()
+            except IntegrityError:
+                # Another request may have created this email between read and insert.
+                existing = User.query.filter_by(email=normalized_email).first()
+                if existing:
+                    return existing
+                raise
         return user
     
     @staticmethod

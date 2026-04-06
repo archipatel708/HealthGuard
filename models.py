@@ -125,8 +125,29 @@ class MongoDB:
         if self.database is None:
             return
         self.database.users.create_index("email", unique=True)
-        self.database.users.create_index("phone", unique=True, sparse=True)
-        self.database.users.create_index("abha_id", unique=True, sparse=True)
+
+        # Migrate legacy indexes that incorrectly enforce uniqueness on null values.
+        user_indexes = self.database.users.index_information()
+        for legacy_name in ("phone_1", "abha_id_1"):
+            if legacy_name in user_indexes:
+                try:
+                    self.database.users.drop_index(legacy_name)
+                except Exception:
+                    pass
+
+        # Enforce uniqueness only when fields are non-empty strings.
+        self.database.users.create_index(
+            "phone",
+            unique=True,
+            name="phone_unique_non_null",
+            partialFilterExpression={"phone": {"$type": "string", "$ne": ""}},
+        )
+        self.database.users.create_index(
+            "abha_id",
+            unique=True,
+            name="abha_id_unique_non_null",
+            partialFilterExpression={"abha_id": {"$type": "string", "$ne": ""}},
+        )
         self.database.otps.create_index([("email", ASCENDING), ("created_at", DESCENDING)])
         self.database.prediction_history.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         self.database.health_records.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
