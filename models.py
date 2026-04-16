@@ -75,7 +75,6 @@ def _ensure_indexes(database: Database) -> None:
     database.users.create_index(
         [("phone", ASCENDING)],
         unique=True,
-        sparse=True,
         partialFilterExpression={"phone": {"$type": "string"}},
     )
     database.prediction_history.create_index([("user_id", ASCENDING), ("created_at", ASCENDING)])

@@ -254,7 +254,20 @@ def analyze_vitals_impact(health_data):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    try:
+        return render_template("index.html")
+    except Exception as exc:
+        app.logger.exception("Failed to render index template: %s", exc)
+        return (
+            jsonify(
+                {
+                    "status": "ok",
+                    "message": "HealthGuard API is running",
+                    "ui_error": "Failed to render web UI template",
+                }
+            ),
+            200,
+        )
 
 
 @app.route("/favicon.ico")
