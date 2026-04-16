@@ -2,6 +2,9 @@
 
 ## Railway
 
+This repository pins Python `3.11` for deployment because the current ML stack
+does not build cleanly on Railpack's default Python `3.13`.
+
 Set these variables in Railway:
 
 ```env
