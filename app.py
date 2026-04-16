@@ -268,11 +268,21 @@ def health_check():
     model_status = "ready" if model_ready else ("lazy" if not _prediction_assets_initialized else "unavailable")
     db_ready = True
     db_error = None
-    try:
-        _db().command("ping")
-    except Exception as exc:
-        db_ready = False
-        db_error = str(exc)
+
+    # Keep default health checks fast for container platforms (e.g., Railway).
+    # Use /api/health?deep=1 when you want an actual DB ping.
+    deep_check = request.args.get("deep", "").strip().lower() in {"1", "true", "yes"}
+    if deep_check:
+        try:
+            _db().command("ping")
+        except Exception as exc:
+            db_ready = False
+            db_error = str(exc)
+    else:
+        mongo_uri = (os.getenv("MONGODB_URI") or "").strip()
+        if not mongo_uri:
+            db_ready = False
+            db_error = "MONGODB_URI environment variable not set"
 
     status = "healthy" if model_ready and db_ready else "degraded"
     payload = {
@@ -281,6 +291,7 @@ def health_check():
         "model_ready": model_ready,
         "model_status": model_status,
         "database_ready": db_ready,
+        "database_check": "deep" if deep_check else "shallow",
         "symptom_count": len(all_symptoms),
     }
     if _prediction_assets_error:
