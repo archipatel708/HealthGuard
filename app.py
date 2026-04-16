@@ -8,16 +8,19 @@ import pandas as pd
 import joblib
 from datetime import datetime
 from dotenv import load_dotenv
+from warnings import simplefilter
 
 from flask import Flask, jsonify, render_template, request, abort
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from sqlalchemy.exc import IntegrityError
+from sklearn.exceptions import InconsistentVersionWarning
 
 from config import config
 from models import db, User, PredictionHistory, HealthRecord, ABHAToken, ensure_schema
 from auth import AuthService, token_required
 from abha import ABHAService
+from train import train_and_save_model
 
 # Load environment variables from .env before creating app/config.
 load_dotenv()
@@ -43,14 +46,33 @@ def create_app(config_name="development"):
 
 
 app = create_app(os.getenv("FLASK_ENV", "development"))
+simplefilter("default", InconsistentVersionWarning)
 
 # ── Load ML Model Artefacts ───────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 
-clf = joblib.load(os.path.join(MODEL_DIR, "model.pkl"))
-all_symptoms = joblib.load(os.path.join(MODEL_DIR, "symptom_list.pkl"))
-severity_map = joblib.load(os.path.join(MODEL_DIR, "severity_map.pkl"))
+def _load_model_artifacts():
+    """Load persisted model artifacts, retraining if they are incompatible."""
+    try:
+        classifier = joblib.load(os.path.join(MODEL_DIR, "model.pkl"))
+        symptoms = joblib.load(os.path.join(MODEL_DIR, "symptom_list.pkl"))
+        severity = joblib.load(os.path.join(MODEL_DIR, "severity_map.pkl"))
+        app.logger.info("Loaded persisted ML artifacts successfully.")
+        return classifier, symptoms, severity
+    except Exception as exc:
+        app.logger.warning("Failed to load persisted ML artifacts: %s", exc)
+        app.logger.warning("Retraining model artifacts from source CSV files.")
+        try:
+            classifier, symptoms, severity = train_and_save_model(BASE_DIR, MODEL_DIR)
+            app.logger.info("Retrained ML artifacts successfully during startup.")
+            return classifier, symptoms, severity
+        except Exception as retrain_exc:
+            app.logger.exception("Automatic model retraining failed: %s", retrain_exc)
+            return None, [], {}
+
+
+clf, all_symptoms, severity_map = _load_model_artifacts()
 symptom_index = {s: i for i, s in enumerate(all_symptoms)}
 
 # ── Load reference datasets ───────────────────────────────────────────────────
@@ -189,7 +211,13 @@ def favicon():
 @app.route("/api/health", methods=["GET"])
 def health_check():
     """Health check endpoint"""
-    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
+    model_ready = clf is not None and bool(all_symptoms)
+    return jsonify({
+        "status": "healthy" if model_ready else "degraded",
+        "timestamp": datetime.utcnow().isoformat(),
+        "model_ready": model_ready,
+        "symptom_count": len(all_symptoms),
+    })
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -295,6 +323,8 @@ def refresh_token():
 @app.route("/api/symptoms", methods=["GET"])
 def get_symptoms():
     """Return the full list of symptoms (display-friendly labels)"""
+    if not all_symptoms:
+        return jsonify({"error": "Model symptoms are unavailable right now"}), 503
     display = [s.replace("_", " ").title() for s in all_symptoms]
     return jsonify([{"value": s, "label": d} for s, d in zip(all_symptoms, display)])
 
@@ -314,6 +344,8 @@ def predict(user):
     data = request.get_json(force=True, silent=True)
     if not data or "symptoms" not in data:
         abort(400, "Request body must be JSON with a 'symptoms' array.")
+    if clf is None or not all_symptoms:
+        return jsonify({"error": "Prediction model is unavailable right now. Please try again shortly."}), 503
 
     raw_symptoms = data["symptoms"]
     if not isinstance(raw_symptoms, list):
