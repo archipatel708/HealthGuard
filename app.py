@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from threading import Lock
 from warnings import simplefilter
 
 import joblib
@@ -41,6 +42,7 @@ simplefilter("default", InconsistentVersionWarning)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "model")
+_prediction_assets_lock = Lock()
 
 
 def _db():
@@ -83,28 +85,75 @@ def _load_model_artifacts():
             return classifier, symptoms, severity
         except Exception as retrain_exc:
             app.logger.exception("Automatic model retraining failed: %s", retrain_exc)
-            return None, [], {}
+        return None, [], {}
 
 
-clf, all_symptoms, severity_map = _load_model_artifacts()
-symptom_index = {symptom: index for index, symptom in enumerate(all_symptoms)}
-
-description_df = pd.read_csv(os.path.join(BASE_DIR, "description.csv"))
-description_df.columns = description_df.columns.str.strip()
-description_df["Disease"] = description_df["Disease"].str.strip()
-desc_map = dict(zip(description_df["Disease"], description_df["Description"]))
-
-precautions_df = pd.read_csv(os.path.join(BASE_DIR, "precautions_df.csv"), index_col=0)
-precautions_df.columns = precautions_df.columns.str.strip()
-precautions_df["Disease"] = precautions_df["Disease"].str.strip()
+clf = None
+all_symptoms = []
+severity_map = {}
+symptom_index = {}
+desc_map = {}
 prec_map = {}
-for _, row in precautions_df.iterrows():
-    precs = [
-        str(row[column]).strip()
-        for column in ["Precaution_1", "Precaution_2", "Precaution_3", "Precaution_4"]
-        if pd.notna(row[column]) and str(row[column]).strip() not in ("", "nan")
-    ]
-    prec_map[row["Disease"]] = precs
+_prediction_assets_initialized = False
+_prediction_assets_error = None
+
+
+def _load_reference_data():
+    description_df = pd.read_csv(os.path.join(BASE_DIR, "description.csv"))
+    description_df.columns = description_df.columns.str.strip()
+    description_df["Disease"] = description_df["Disease"].str.strip()
+    descriptions = dict(zip(description_df["Disease"], description_df["Description"]))
+
+    precautions_df = pd.read_csv(os.path.join(BASE_DIR, "precautions_df.csv"), index_col=0)
+    precautions_df.columns = precautions_df.columns.str.strip()
+    precautions_df["Disease"] = precautions_df["Disease"].str.strip()
+    precautions = {}
+    for _, row in precautions_df.iterrows():
+        precs = [
+            str(row[column]).strip()
+            for column in ["Precaution_1", "Precaution_2", "Precaution_3", "Precaution_4"]
+            if pd.notna(row[column]) and str(row[column]).strip() not in ("", "nan")
+        ]
+        precautions[row["Disease"]] = precs
+
+    return descriptions, precautions
+
+
+def _ensure_prediction_assets():
+    global clf, all_symptoms, severity_map, symptom_index, desc_map, prec_map
+    global _prediction_assets_initialized, _prediction_assets_error
+
+    if _prediction_assets_initialized:
+        return clf is not None and bool(all_symptoms)
+
+    with _prediction_assets_lock:
+        if _prediction_assets_initialized:
+            return clf is not None and bool(all_symptoms)
+
+        try:
+            classifier, symptoms, severity = _load_model_artifacts()
+            descriptions, precautions = _load_reference_data()
+
+            clf = classifier
+            all_symptoms = symptoms
+            severity_map = severity
+            symptom_index = {symptom: index for index, symptom in enumerate(all_symptoms)}
+            desc_map = descriptions
+            prec_map = precautions
+            _prediction_assets_error = None if clf is not None and all_symptoms else "Prediction artifacts unavailable"
+        except Exception as exc:
+            app.logger.exception("Failed to initialize prediction assets: %s", exc)
+            clf = None
+            all_symptoms = []
+            severity_map = {}
+            symptom_index = {}
+            desc_map = {}
+            prec_map = {}
+            _prediction_assets_error = str(exc)
+        finally:
+            _prediction_assets_initialized = True
+
+    return clf is not None and bool(all_symptoms)
 
 
 def _safe_float(value):
@@ -216,6 +265,7 @@ def favicon():
 @app.route("/api/health", methods=["GET"])
 def health_check():
     model_ready = clf is not None and bool(all_symptoms)
+    model_status = "ready" if model_ready else ("lazy" if not _prediction_assets_initialized else "unavailable")
     db_ready = True
     db_error = None
     try:
@@ -229,9 +279,12 @@ def health_check():
         "status": status,
         "timestamp": datetime.utcnow().isoformat(),
         "model_ready": model_ready,
+        "model_status": model_status,
         "database_ready": db_ready,
         "symptom_count": len(all_symptoms),
     }
+    if _prediction_assets_error:
+        payload["model_error"] = _prediction_assets_error
     if db_error:
         payload["database_error"] = db_error
     return jsonify(payload)
@@ -309,8 +362,8 @@ def refresh_token():
 
 @app.route("/api/symptoms", methods=["GET"])
 def get_symptoms():
-    if not all_symptoms:
-        return jsonify({"error": "Model symptoms are unavailable right now"}), 503
+    if not _ensure_prediction_assets():
+        return jsonify({"error": "Model symptoms are unavailable right now", "details": _prediction_assets_error}), 503
     display = [symptom.replace("_", " ").title() for symptom in all_symptoms]
     return jsonify([{"value": value, "label": label} for value, label in zip(all_symptoms, display)])
 
@@ -321,8 +374,8 @@ def predict(user):
     data = request.get_json(force=True, silent=True)
     if not data or "symptoms" not in data:
         abort(400, "Request body must be JSON with a 'symptoms' array.")
-    if clf is None or not all_symptoms:
-        return jsonify({"error": "Prediction model is unavailable right now. Please try again shortly."}), 503
+    if not _ensure_prediction_assets():
+        return jsonify({"error": "Prediction model is unavailable right now. Please try again shortly.", "details": _prediction_assets_error}), 503
 
     raw_symptoms = data["symptoms"]
     if not isinstance(raw_symptoms, list):
