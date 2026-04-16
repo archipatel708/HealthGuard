@@ -2,8 +2,7 @@
 
 ## Railway
 
-This repository pins Python `3.11` for deployment because the current ML stack
-does not build cleanly on Railpack's default Python `3.13`.
+This project includes a production `Dockerfile` for consistent startup on Railway.
 
 Set these variables in Railway:
 
@@ -15,14 +14,14 @@ MONGODB_URI=<your-mongodb-uri>
 MONGODB_DB=healthguard
 ```
 
-Use a start command such as:
+Railway setup:
 
-```bash
-gunicorn --workers 1 --bind 0.0.0.0:$PORT app:app
-```
+1. In your Railway service, choose Dockerfile-based deploy.
+2. Keep the `PORT` variable managed by Railway (do not hardcode it).
+3. Deploy; container start command is already defined in `Dockerfile`.
 
 ## Notes
 
-- Railway can run this project directly from source using the included `Procfile`.
-- No Docker step is required.
+- The Docker image runs `gunicorn` and binds to `0.0.0.0:$PORT`.
+- `docker-compose.yml` is provided for local parity (`5000 -> 8080`).
 - The app expects MongoDB, not relational databases.
