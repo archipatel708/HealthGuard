@@ -1,5 +1,5 @@
 """
-Enhanced Flask backend with Email+OTP Authentication, Data Persistence, and ABHA API Support
+Disease prediction backend with password authentication and ABHA support.
 """
 
 import os
@@ -7,16 +7,15 @@ import numpy as np
 import pandas as pd
 import joblib
 from datetime import datetime
-import secrets
 from dotenv import load_dotenv
 
-from flask import Flask, jsonify, render_template, request, abort, url_for
+from flask import Flask, jsonify, render_template, request, abort
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from sqlalchemy.exc import IntegrityError
 
 from config import config
-from models import db, User, OTP, PredictionHistory, HealthRecord, ABHAToken
+from models import db, User, PredictionHistory, HealthRecord, ABHAToken, ensure_schema
 from auth import AuthService, token_required
 from abha import ABHAService
 
@@ -38,6 +37,7 @@ def create_app(config_name="development"):
     
     with app.app_context():
         db.create_all()
+        ensure_schema()
     
     return app
 
@@ -196,78 +196,75 @@ def health_check():
 # ║                    AUTHENTICATION ROUTES                                   ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
-@app.route("/api/auth/request-otp", methods=["POST"])
-def request_otp():
-    """
-    Request OTP for email-based login/signup
-    
-    Body: {"email": "user@example.com"}
-    """
+@app.route("/api/auth/register", methods=["POST"])
+def register_user():
+    """Register a new user with email/password."""
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
-    
-    if not email or "@" not in email:
-        return jsonify({"error": "Valid email is required"}), 400
-    
+    password = data.get("password", "")
+    confirm_password = data.get("confirm_password", "")
+    phone = data.get("phone")
+    first_name = data.get("first_name")
+    last_name = data.get("last_name")
+
+    if password != confirm_password:
+        return jsonify({"error": "Passwords do not match"}), 400
+
     try:
-        # Create or get user
-        user = AuthService.create_or_get_user(email)
-        
-        # Generate OTP
-        otp, success, message = AuthService.generate_otp(email)
-        
+        success, message, user = AuthService.register_user(
+            email=email,
+            password=password,
+            phone=phone,
+            first_name=first_name,
+            last_name=last_name,
+        )
         if not success:
-            return jsonify({"error": message}), 500
-        
+            return jsonify({"error": message}), 400
+
+        tokens = AuthService.generate_tokens(user.id)
         return jsonify({
-            "message": "OTP sent successfully",
-            "email": email,
-            "validity_minutes": app.config["OTP_VALIDITY_MINUTES"],
-            "user_id": user.id
+            "message": message,
+            "user": user.to_dict(),
+            **tokens,
+        }), 201
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "Account details already exist"}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def login_user():
+    """Authenticate a user with email/password."""
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+
+    try:
+        success, message, user = AuthService.authenticate_user(email, password)
+        if not success:
+            return jsonify({"error": message}), 401
+
+        tokens = AuthService.generate_tokens(user.id)
+        return jsonify({
+            "message": message,
+            "user": user.to_dict(),
+            **tokens,
         }), 200
     except Exception as e:
-        return jsonify({"error": f"Failed to request OTP: {str(e)}"}), 500
+        return jsonify({"error": f"Login failed: {str(e)}"}), 500
+
+
+@app.route("/api/auth/request-otp", methods=["POST"])
+def request_otp():
+    return jsonify({"error": "OTP authentication has been removed. Use /api/auth/register or /api/auth/login."}), 410
 
 
 @app.route("/api/auth/verify-otp", methods=["POST"])
 def verify_otp():
-    """
-    Verify OTP and generate JWT tokens
-    
-    Body: {"email": "user@example.com", "otp": "123456"}
-    """
-    data = request.get_json(silent=True) or {}
-    email = data.get("email", "").strip().lower()
-    otp_code = data.get("otp", "").strip()
-    
-    if not email or not otp_code or len(otp_code) != 6:
-        return jsonify({"error": "Valid email and 6-digit OTP required"}), 400
-    
-    try:
-        # Verify OTP
-        is_valid, message = AuthService.verify_otp(email, otp_code)
-        if not is_valid:
-            return jsonify({"error": message}), 401
-        
-        # Get or create user
-        user = User.query.filter_by(email=email).first()
-        if not user:
-            user = AuthService.create_or_get_user(email)
-        
-        # Mark user as verified
-        user.is_verified = True
-        db.session.commit()
-        
-        # Generate JWT tokens
-        tokens = AuthService.generate_tokens(user.id)
-        
-        return jsonify({
-            "message": "Login successful",
-            "user": user.to_dict(),
-            **tokens
-        }), 200
-    except Exception as e:
-        return jsonify({"error": f"OTP verification failed: {str(e)}"}), 500
+    return jsonify({"error": "OTP authentication has been removed. Use /api/auth/login with email and password."}), 410
 
 
 @app.route("/api/auth/refresh", methods=["POST"])

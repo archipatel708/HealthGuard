@@ -17,12 +17,22 @@
   // Auth
   const loginSection = document.getElementById("loginSection");
   const appSection = document.getElementById("appSection");
-  const emailInput = document.getElementById("emailInput");
-  const requestOtpBtn = document.getElementById("requestOtpBtn");
-  const otpSection = document.getElementById("otpSection");
-  const otpInput = document.getElementById("otpInput");
-  const verifyOtpBtn = document.getElementById("verifyOtpBtn");
-  const resendOtpBtn = document.getElementById("resendOtpBtn");
+  const loginEmailInput = document.getElementById("loginEmailInput");
+  const loginPasswordInput = document.getElementById("loginPasswordInput");
+  const loginBtn = document.getElementById("loginBtn");
+  const registerFirstNameInput = document.getElementById("registerFirstNameInput");
+  const registerLastNameInput = document.getElementById("registerLastNameInput");
+  const registerEmailInput = document.getElementById("registerEmailInput");
+  const registerPhoneInput = document.getElementById("registerPhoneInput");
+  const registerPasswordInput = document.getElementById("registerPasswordInput");
+  const registerConfirmPasswordInput = document.getElementById("registerConfirmPasswordInput");
+  const registerBtn = document.getElementById("registerBtn");
+  const showLoginTabBtn = document.getElementById("showLoginTabBtn");
+  const showRegisterTabBtn = document.getElementById("showRegisterTabBtn");
+  const goToRegisterBtn = document.getElementById("goToRegisterBtn");
+  const goToLoginBtn = document.getElementById("goToLoginBtn");
+  const loginFormPanel = document.getElementById("loginFormPanel");
+  const registerFormPanel = document.getElementById("registerFormPanel");
 
   // App
   const tabBtns = document.querySelectorAll(".tab-btn");
@@ -95,9 +105,14 @@
 
   function setupEventListeners() {
     // Auth
-    requestOtpBtn.addEventListener("click", handleRequestOtp);
-    verifyOtpBtn.addEventListener("click", handleVerifyOtp);
-    resendOtpBtn.addEventListener("click", handleRequestOtp);
+    loginBtn.addEventListener("click", handleLogin);
+    registerBtn.addEventListener("click", handleRegister);
+    showLoginTabBtn.addEventListener("click", () => switchAuthPanel("login"));
+    showRegisterTabBtn.addEventListener("click", () => switchAuthPanel("register"));
+    goToRegisterBtn.addEventListener("click", () => switchAuthPanel("register"));
+    goToLoginBtn.addEventListener("click", () => switchAuthPanel("login"));
+    loginPasswordInput.addEventListener("keydown", handleAuthKeydown);
+    registerConfirmPasswordInput.addEventListener("keydown", handleAuthKeydown);
 
     // Tabs
     tabBtns.forEach(btn => {
@@ -126,89 +141,95 @@
   // ║                    AUTHENTICATION FLOW                                     ║
   // ╚════════════════════════════════════════════════════════════════════════════╝
 
-  async function handleRequestOtp() {
-    const email = emailInput.value.trim().toLowerCase();
-    
+  async function handleLogin() {
+    const email = loginEmailInput.value.trim().toLowerCase();
+    const password = loginPasswordInput.value;
+
     if (!email || !email.includes("@")) {
       showError("Please enter a valid email address");
       return;
     }
-
-    setButtonLoading(requestOtpBtn, true, "Sending OTP...");
-    showLoader(true);
-    showError("Requesting OTP...", "info");
-    try {
-      const res = await fetch(`${API_BASE}/auth/request-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email })
-      });
-
-      const data = await safeParseJson(res);
-      showLoader(false);
-
-      if (!res.ok) {
-        showError(data.error || "Failed to request OTP");
-        return;
-      }
-
-      showError(""); // Clear errors
-      otpSection.classList.remove("hidden");
-      otpInput.focus();
-      showError(data.message || "OTP sent successfully", "success");
-    } catch (err) {
-      showLoader(false);
-      showError("Network error: " + err.message);
-    } finally {
-      setButtonLoading(requestOtpBtn, false, "Request OTP");
-    }
-  }
-
-  async function handleVerifyOtp() {
-    const email = emailInput.value.trim().toLowerCase();
-    const otp = otpInput.value.trim();
-
-    if (!otp || otp.length !== 6) {
-      showError("Please enter a valid 6-digit OTP");
+    if (!password) {
+      showError("Please enter your password");
       return;
     }
 
-    setButtonLoading(verifyOtpBtn, true, "Verifying...");
+    setButtonLoading(loginBtn, true, "Signing In...");
     showLoader(true);
-    showError("Verifying OTP...", "info");
     try {
-      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp })
+        body: JSON.stringify({ email, password })
       });
-
       const data = await safeParseJson(res);
-      showLoader(false);
 
       if (!res.ok) {
-        showError(data.error || "Invalid OTP");
+        showError(extractErrorMessage(data, "Login failed"));
         return;
       }
 
-      // Store tokens
-      accessToken = data.access_token;
-      refreshToken = data.refresh_token;
-      currentUser = data.user;
-
-      localStorage.setItem("accessToken", accessToken);
-      localStorage.setItem("refreshToken", refreshToken);
-      localStorage.setItem("currentUser", JSON.stringify(currentUser));
-
+      persistAuthSession(data);
       showError("Login successful", "success");
       showApp();
       loadSymptoms();
       loadProfile();
     } catch (err) {
-      showLoader(false);
       showError("Network error: " + err.message);
     } finally {
-      setButtonLoading(verifyOtpBtn, false, "Verify OTP");
+      showLoader(false);
+      setButtonLoading(loginBtn, false, "Sign In");
+    }
+  }
+
+  async function handleRegister() {
+    const payload = {
+      first_name: registerFirstNameInput.value.trim(),
+      last_name: registerLastNameInput.value.trim(),
+      email: registerEmailInput.value.trim().toLowerCase(),
+      phone: registerPhoneInput.value.trim(),
+      password: registerPasswordInput.value,
+      confirm_password: registerConfirmPasswordInput.value
+    };
+
+    if (!payload.email || !payload.email.includes("@")) {
+      showError("Please enter a valid email address");
+      return;
+    }
+    if (!payload.password || payload.password.length < 6) {
+      showError("Password must be at least 6 characters");
+      return;
+    }
+    if (payload.password !== payload.confirm_password) {
+      showError("Passwords do not match");
+      return;
+    }
+
+    setButtonLoading(registerBtn, true, "Creating Account...");
+    showLoader(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await safeParseJson(res);
+
+      if (!res.ok) {
+        showError(extractErrorMessage(data, "Registration failed"));
+        return;
+      }
+
+      persistAuthSession(data);
+      showError("Registration successful", "success");
+      showApp();
+      loadSymptoms();
+      loadProfile();
+    } catch (err) {
+      showError("Network error: " + err.message);
+    } finally {
+      showLoader(false);
+      setButtonLoading(registerBtn, false, "Create Account");
     }
   }
 
@@ -221,10 +242,16 @@
     refreshToken = null;
     currentUser = null;
 
-    emailInput.value = "";
-    otpInput.value = "";
-    otpSection.classList.add("hidden");
+    loginEmailInput.value = "";
+    loginPasswordInput.value = "";
+    registerFirstNameInput.value = "";
+    registerLastNameInput.value = "";
+    registerEmailInput.value = "";
+    registerPhoneInput.value = "";
+    registerPasswordInput.value = "";
+    registerConfirmPasswordInput.value = "";
 
+    switchAuthPanel("login");
     showLogin();
   }
 
@@ -609,6 +636,36 @@
     loginSection.classList.add("hidden");
     appSection.classList.remove("hidden");
     navMenu.style.display = "flex";
+  }
+
+  function switchAuthPanel(mode) {
+    const showLogin = mode === "login";
+    loginFormPanel.classList.toggle("hidden", !showLogin);
+    registerFormPanel.classList.toggle("hidden", showLogin);
+    loginFormPanel.classList.toggle("active", showLogin);
+    registerFormPanel.classList.toggle("active", !showLogin);
+    showLoginTabBtn.classList.toggle("active", showLogin);
+    showRegisterTabBtn.classList.toggle("active", !showLogin);
+  }
+
+  function handleAuthKeydown(event) {
+    if (event.key !== "Enter") return;
+    if (event.target === loginPasswordInput) {
+      handleLogin();
+    }
+    if (event.target === registerConfirmPasswordInput) {
+      handleRegister();
+    }
+  }
+
+  function persistAuthSession(data) {
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token;
+    currentUser = data.user;
+
+    localStorage.setItem("accessToken", accessToken);
+    localStorage.setItem("refreshToken", refreshToken);
+    localStorage.setItem("currentUser", JSON.stringify(currentUser));
   }
 
   function switchTab(tabName) {

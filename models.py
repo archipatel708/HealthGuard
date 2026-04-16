@@ -3,7 +3,7 @@ Database Models for Disease Prediction Backend
 """
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-from sqlalchemy import func
+from sqlalchemy import inspect, text
 import secrets
 
 db = SQLAlchemy()
@@ -15,6 +15,7 @@ class User(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=True)
     phone = db.Column(db.String(20), unique=True, nullable=True)
     first_name = db.Column(db.String(100))
     last_name = db.Column(db.String(100))
@@ -53,6 +54,18 @@ class User(db.Model):
             "is_verified": self.is_verified,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+def ensure_schema():
+    """Apply lightweight schema fixes for existing deployments."""
+    inspector = inspect(db.engine)
+    if not inspector.has_table("users"):
+        return
+
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "password_hash" not in user_columns:
+        with db.engine.begin() as connection:
+            connection.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)"))
 
 
 class OTP(db.Model):
