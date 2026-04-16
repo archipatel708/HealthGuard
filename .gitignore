@@ -34,9 +34,6 @@ ENV/
 # Runtime and local instance state
 instance/
 flask_session/
-*.sqlite
-*.sqlite3
-app.db
 
 # Logs and runtime output
 *.log
