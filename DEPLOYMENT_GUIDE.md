@@ -15,13 +15,11 @@ MONGODB_DB=healthguard
 Use a start command such as:
 
 ```bash
-gunicorn --bind 0.0.0.0:$PORT app:app
+gunicorn --workers 1 --bind 0.0.0.0:$PORT app:app
 ```
 
-## Docker
+## Notes
 
-```bash
-docker compose up --build
-```
-
-This project expects MongoDB, not relational databases.
+- Railway can run this project directly from source using the included `Procfile`.
+- No Docker step is required.
+- The app expects MongoDB, not relational databases.

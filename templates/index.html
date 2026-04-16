@@ -4,9 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HealthGuard - Disease Prediction & ABHA Integration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <div class="page-noise" aria-hidden="true"></div>
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header>
     <div class="header-inner">
@@ -18,7 +22,10 @@
         </svg>
         <span>HealthGuard</span>
       </div>
-      <p class="tagline">Intelligent Disease Prediction with ABHA Integration</p>
+      <div class="header-meta">
+        <p class="tagline">Technical Editorial Interface for Disease Prediction</p>
+        <p class="header-runtime">MongoDB Runtime / Predictive Triage / ABHA Bridge</p>
+      </div>
       <nav class="nav-menu" id="navMenu" style="display: none;">
         <button id="profileBtn" class="nav-link">Profile</button>
         <button id="historyBtn" class="nav-link">History</button>
@@ -51,6 +58,12 @@
             <strong>ABHA Ready</strong>
             <span>Connect your ABHA workflow from the same dashboard.</span>
           </div>
+        </div>
+        <div class="system-terminal auth-terminal" aria-hidden="true">
+          <p><span>$</span> runtime.status --verbose</p>
+          <p><span>&gt;</span> auth system online</p>
+          <p><span>&gt;</span> prediction engine attached</p>
+          <p><span>&gt;</span> patient data vault secured <i class="cursor"></i></p>
         </div>
       </div>
 
@@ -131,7 +144,22 @@
     </section>
 
     <!-- MAIN APP (Hidden until authenticated) -->
-    <section id="appSection" class="hidden">
+    <section id="appSection" class="hidden app-shell">
+      <section class="editorial-intro card">
+        <p class="panel-kicker">System Overview</p>
+        <div class="intro-grid">
+          <div>
+            <h2>Clinical signals, prediction memory, and ABHA tasks are staged in one operational console.</h2>
+          </div>
+          <div class="system-terminal intro-terminal" aria-hidden="true">
+            <p><span>#</span> node /healthguard/live</p>
+            <p><span>#</span> collection.users: active</p>
+            <p><span>#</span> collection.prediction_history: active</p>
+            <p><span>#</span> queue.abha: standby <i class="cursor"></i></p>
+          </div>
+        </div>
+      </section>
+
       <!-- TAB NAVIGATION -->
       <div class="tabs">
         <button class="tab-btn active" data-tab="prediction">Prediction</button>
@@ -143,6 +171,7 @@
       <!-- PREDICTION TAB -->
       <section id="predictionTab" class="tab-content active">
         <div class="card symptom-card">
+          <p class="panel-kicker">Prediction Console</p>
           <h2>Select Your Symptoms</h2>
           <p class="hint">Search and pick all symptoms you are experiencing</p>
 
@@ -169,6 +198,7 @@
 
         <!-- OPTIONAL HEALTH DATA -->
         <div class="card">
+          <p class="panel-kicker">Vital Context</p>
           <h3>Optional Health Vitals (for enhanced analysis)</h3>
           <div class="health-form">
             <div class="form-group">
@@ -188,6 +218,7 @@
 
         <!-- RESULT -->
         <section id="resultSection" class="card result-card hidden" aria-live="polite">
+          <p class="panel-kicker">Model Output</p>
           <div class="result-header">
             <div class="result-badge">✓</div>
             <div>
@@ -222,6 +253,7 @@
       <!-- HISTORY TAB -->
       <section id="historyTab" class="tab-content hidden">
         <div class="card">
+          <p class="panel-kicker">Audit Trail</p>
           <h2>Prediction History</h2>
           <div class="history-table-wrap">
             <table class="history-table" aria-label="Prediction history table">
@@ -243,6 +275,7 @@
       <!-- PROFILE TAB -->
       <section id="profileTab" class="tab-content hidden">
         <div class="card">
+          <p class="panel-kicker">Identity Layer</p>
           <h2>My Profile</h2>
           <div class="profile-form">
             <div class="form-group">
@@ -281,6 +314,7 @@
       <!-- ABHA TAB -->
       <section id="abhaTab" class="tab-content hidden">
         <div class="card">
+          <p class="panel-kicker">Government Health Bridge</p>
           <h2>ABHA (Ayushman Bharat Health Account)</h2>
           <p class="hint">Link your ABHA account to access your health records directly from the government system</p>
           
@@ -339,7 +373,7 @@
   </main>
 
   <footer>
-    <p>HealthGuard · Powered by scikit-learn, Flask & NDHM ABHA · &copy; 2026</p>
+    <p>HealthGuard / engineered with Flask, scikit-learn, MongoDB & NDHM ABHA / &copy; 2026</p>
   </footer>
 
   <script src="/static/app.js"></script>
