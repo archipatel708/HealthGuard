@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HealthGuard - Intelligent Disease Prediction System | Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL,GRAD@300,0,0"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="floating-nav nav-stack">
+        <div class="nav-top">
+          <div>
+            <p class="hero-kicker">HealthGuard</p>
+            <h1>Intelligent Disease Prediction System</h1>
+          </div>
+          <button id="logout-btn" class="tertiary-btn">Logout</button>
+        </div>
+        <p class="header-subtitle">Fast triage workflow with AI extraction, model inference, ABHA context, and profile-aware history.</p>
+        <nav class="tab-nav">
+          <button class="tab-btn active" data-tab="predictions"><span class="material-symbols-outlined icon-inline">monitor_heart</span>Predictions</button>
+          <button class="tab-btn" data-tab="history"><span class="material-symbols-outlined icon-inline">history</span>History</button>
+          <button class="tab-btn" data-tab="profile"><span class="material-symbols-outlined icon-inline">badge</span>Profile</button>
+          <button class="tab-btn" data-tab="abha"><span class="material-symbols-outlined icon-inline">clinical_notes</span>ABHA</button>
+        </nav>
+      </header>
+
+      <p id="app-message" class="status-banner">Ready.</p>
+
+      <main class="main-content">
+        <section class="panel tab-panel active" id="tab-predictions">
+          <div class="prediction-grid">
+            <div class="prediction-input">
+              <h2>Symptoms Input</h2>
+              <span class="status-chip">Primary Diagnostic Path</span>
+              <div class="field">
+                <label>Gender</label>
+                <select id="patient-gender">
+                  <option value="">Prefer not to say</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <textarea id="symptom-text" placeholder="Describe symptoms in plain language..."></textarea>
+              <button id="predict-btn" class="primary-btn">Run Prediction</button>
+            </div>
+            <div class="prediction-card">
+              <p class="result-label">Predicted Disease</p>
+              <p id="predicted-disease" class="result-disease">Awaiting Input</p>
+              <p id="predicted-confidence" class="result-confidence">Confidence: --%</p>
+              <p id="prediction-note" class="result-note">Run a prediction to view diagnostic reasoning.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel tab-panel" id="tab-history">
+          <h2>Prediction History</h2>
+          <button id="refresh-history-btn" class="secondary-btn">Refresh History</button>
+          <div id="history-list" class="list-output"></div>
+        </section>
+
+        <section class="panel tab-panel" id="tab-profile">
+          <h2>Profile</h2>
+          <span class="status-chip">Identity And Contact</span>
+          <form id="profile-form">
+            <div class="field">
+              <label>Name</label>
+              <input id="profile-name" type="text" />
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input id="profile-email" type="email" />
+            </div>
+            <div class="field">
+              <label>Phone (optional)</label>
+              <input id="profile-phone" type="text" />
+            </div>
+            <div class="field">
+              <label>Gender</label>
+              <select id="profile-gender">
+                <option value="unspecified">Prefer not to say</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <button class="primary-btn" type="submit">Update Profile</button>
+          </form>
+        </section>
+
+        <section class="panel tab-panel" id="tab-abha">
+          <h2>ABHA Records</h2>
+          <span class="status-chip">Linked Health Records</span>
+          <button id="abha-link-btn" class="primary-btn">Link ABHA</button>
+          <div id="abha-records" class="list-output"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

@@ -1,2 +1,1 @@
-web: sh -c 'gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers ${WEB_CONCURRENCY:-1} --worker-class sync --timeout ${GUNICORN_TIMEOUT:-120} --access-logfile - --error-logfile - --capture-output --log-level info'
-
+web: gunicorn app:app

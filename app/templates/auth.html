@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HealthGuard - Intelligent Disease Prediction System | Auth</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL,GRAD@300,0,0"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="floating-nav">
+        <div class="nav-top">
+          <div>
+            <p class="hero-kicker">HealthGuard</p>
+            <h1>Secure Access Gateway</h1>
+          </div>
+          <div class="nav-pill"><span class="material-symbols-outlined icon-inline">verified_user</span>Production Auth</div>
+        </div>
+      </header>
+
+      <p id="auth-message" class="status-banner">Sign in or create your account to continue.</p>
+
+      <main class="auth-layout editorial-grid">
+        <section class="panel auth-hero">
+          <h2 class="display-block">Clinical AI Workspace</h2>
+          <p class="hero-copy">
+            Access diagnosis workflows, profile management, ABHA-linked records, and longitudinal prediction history.
+          </p>
+          <div class="hero-metrics">
+            <div>
+              <span class="metric-label">Engine</span>
+              <strong>ML + LLM</strong>
+            </div>
+            <div>
+              <span class="metric-label">Session</span>
+              <strong>JWT Cookie</strong>
+            </div>
+            <div>
+              <span class="metric-label">Storage</span>
+              <strong>MongoDB</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel auth-stack">
+          <div class="auth-toggle" role="tablist" aria-label="Auth mode">
+            <button id="show-login-btn" class="tab-btn active" type="button">Login</button>
+            <button id="show-register-btn" class="tab-btn" type="button">Register</button>
+          </div>
+
+          <div id="login-card" class="auth-card">
+            <h2>Login</h2>
+            <span class="status-chip">Encrypted Session</span>
+            <form id="login-form">
+              <div class="field">
+                <label>Email</label>
+                <input id="login-email" type="email" required autocomplete="email" />
+              </div>
+              <div class="field">
+                <label>Password</label>
+                <input id="login-password" type="password" required autocomplete="current-password" />
+              </div>
+              <button class="primary-btn full-btn" type="submit">Login</button>
+            </form>
+          </div>
+          <div id="register-card" class="auth-card hidden">
+            <h2>Register</h2>
+            <span class="status-chip">Provision New Account</span>
+            <form id="register-form">
+              <div class="field">
+                <label>Name</label>
+                <input id="register-name" type="text" required autocomplete="name" />
+              </div>
+              <div class="field">
+                <label>Email</label>
+                <input id="register-email" type="email" required autocomplete="email" />
+              </div>
+              <div class="field">
+                <label>Password</label>
+                <input id="register-password" type="password" required minlength="8" autocomplete="new-password" />
+              </div>
+              <button class="primary-btn full-btn" type="submit">Create Account</button>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

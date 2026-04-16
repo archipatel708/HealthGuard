@@ -1,0 +1,9 @@
+record_id,condition,medication,last_visit,notes
+ABHA-001,Hypertension,Amlodipine,2026-02-10,Blood pressure improved after dose adjustment
+ABHA-002,Type 2 Diabetes,Metformin,2026-01-18,Fasting sugar moderately elevated
+ABHA-003,Allergic Rhinitis,Cetirizine,2026-03-03,Seasonal allergy flare-up
+ABHA-004,GERD,Omeprazole,2025-12-22,Acidity symptoms mostly controlled
+ABHA-005,Vitamin D Deficiency,Cholecalciferol,2026-02-01,Supplement adherence moderate
+ABHA-006,Migraine,Sumatriptan,2026-03-11,Headache frequency reduced
+ABHA-007,Iron Deficiency,Iron Fumarate,2026-01-05,Follow-up CBC recommended
+ABHA-008,Asthma,Budesonide Inhaler,2026-02-27,Nocturnal wheeze reported once
