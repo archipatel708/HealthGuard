@@ -1,1 +1,1 @@
-web: gunicorn --workers 1 --bind 0.0.0.0:$PORT app:app
+web: sh -c 'gunicorn --workers ${WEB_CONCURRENCY:-1} --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-120} --bind 0.0.0.0:${PORT:-8080} app:app'
