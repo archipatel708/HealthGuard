@@ -55,7 +55,8 @@ def initialize_mongodb() -> None:
         "socketTimeoutMS": 20000,
         "connect": False,
     }
-    if uri.startswith("mongodb+srv://"):
+    if uri.startswith("mongodb+srv://") or "mongodb.net" in uri:
+        mongo_kwargs["tls"] = True
         mongo_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(uri, **mongo_kwargs)
